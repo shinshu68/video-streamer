@@ -15,6 +15,8 @@ type Config struct {
 	Root string `json:"root"`
 	// Port は待ち受けるポート番号。
 	Port int `json:"port"`
+	// FFmpeg は ffmpeg の実行ファイルのパス。省略時は空文字列。
+	FFmpeg string `json:"ffmpeg"`
 }
 
 // Load は path の設定ファイルを読み込み、必須項目がそろっているかを検証する。

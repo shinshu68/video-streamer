@@ -22,8 +22,20 @@ func TestLoad_ReadsRootAndPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Root != `E:\Videos` || cfg.Port != 8765 {
+	if cfg.Root != `E:\Videos` || cfg.Port != 8765 || cfg.FFmpeg != "" {
 		t.Errorf("Load() = %+v", cfg)
+	}
+}
+
+func TestLoad_ReadsOptionalFFmpegPath(t *testing.T) {
+	path := writeConfig(t, `{"root": "E:\\Videos", "port": 8765, "ffmpeg": "C:\\tools\\ffmpeg.exe"}`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FFmpeg != `C:\tools\ffmpeg.exe` {
+		t.Errorf("FFmpeg = %q", cfg.FFmpeg)
 	}
 }
 

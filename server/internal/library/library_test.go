@@ -242,6 +242,35 @@ func TestOpenVideo_OpensVideoFile(t *testing.T) {
 	}
 }
 
+func TestVideo_ReturnsPathAndInfo(t *testing.T) {
+	lib, root, _ := newTestLibrary(t)
+
+	abs, clean, fi, err := lib.Video(`フォルダA\動画C.mp4`)
+	if err != nil {
+		t.Fatalf("Video() error = %v", err)
+	}
+	if want := filepath.Join(root, "フォルダA", "動画C.mp4"); abs != want {
+		t.Errorf("abs = %q, want %q", abs, want)
+	}
+	if clean != "フォルダA/動画C.mp4" {
+		t.Errorf("clean = %q", clean)
+	}
+	if fi.Size() != int64(len("dummy")) {
+		t.Errorf("Size() = %d", fi.Size())
+	}
+}
+
+func TestVideo_RejectsNonVideo(t *testing.T) {
+	lib, _, _ := newTestLibrary(t)
+	for _, rel := range []string{"memo.txt", "フォルダA", "", "missing.mp4", "../outside/secret.mp4"} {
+		t.Run(rel, func(t *testing.T) {
+			if _, _, _, err := lib.Video(rel); err == nil {
+				t.Errorf("Video(%q) error = nil, want error", rel)
+			}
+		})
+	}
+}
+
 func TestOpenVideo_RejectsNonVideo(t *testing.T) {
 	lib, _, _ := newTestLibrary(t)
 	for _, rel := range []string{"memo.txt", "フォルダA", ""} {

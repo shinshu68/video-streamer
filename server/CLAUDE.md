@@ -43,6 +43,7 @@ server/
 └── internal/
     ├── config/           # 設定ファイルの読み込み
     ├── library/          # 公開フォルダのパスの検証と一覧 (Windows の属性の判定は attr_windows.go)
+    ├── thumbnail/        # ffmpeg でのサムネイルの生成とキャッシュ
     └── httpapi/          # HTTP ハンドラー (docs/api.md のエンドポイント)
 ```
 
@@ -53,3 +54,4 @@ server/
 - 返してよいのは公開フォルダ配下のファイルだけ。リクエストで渡されたパスは必ず正規化し、公開フォルダの外 (`..` やシンボリックリンク経由を含む) を指す場合は拒否する
 - 動画の配信は `http.ServeContent` を使い、Range リクエストに対応させる
 - 外部パッケージは標準ライブラリで足りない場合だけ追加する (追加時はユーザーに確認する)
+- ffmpeg を使うテストは、ffmpeg がない環境では飛ばす。テスト用の動画はテストの中で ffmpeg のテストパターン (`-f lavfi -i testsrc`) から作る。ffmpeg を使わないテストでは thumbnail.Generator を偽物に差し替える
