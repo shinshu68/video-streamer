@@ -23,7 +23,7 @@ JSON 形式。既定では exe と同じフォルダの `config.json` を読む�
 | --- | --- |
 | `root` | 公開フォルダのパス (外付けHDD上のフォルダ)。JSON のため `\` は `\\` と書く。`/` 区切りでもよい |
 | `port` | 待ち受けるポート番号 |
-| `ffmpeg` | 省略可。ffmpeg.exe のパス。省略すると PATH から探す |
+| `ffmpeg` | 省略可。ffmpeg.exe のパス。省略すると PATH から探す。ffprobe.exe は ffmpeg.exe と同じフォルダから探す |
 
 `root` と `port` は必須で、欠けている場合は起動時にエラーで終了する。外付けHDDのドライブ文字が変わった場合は、`root` を書き換えて対応する。
 
@@ -45,13 +45,19 @@ Windows ファイアウォールで、サーバーのポートへの受信をプ
 
 ## ffmpeg
 
-サムネイル生成に使う。winget でインストールし、サーバーは PATH から探す。PATH に入っていない場所の ffmpeg を使う場合は、設定ファイルの `ffmpeg` にパスを書く。
+サムネイル生成に使う。動画の長さを調べるために、同梱の ffprobe も使う。winget でインストールし、サーバーは PATH から探す。PATH に入っていない場所の ffmpeg を使う場合は、設定ファイルの `ffmpeg` にパスを書く。
 
 ```powershell
 winget install --id Gyan.FFmpeg --exact
 ```
 
-インストール後は、PATH の変更を反映するためにサーバーを起動し直す (常駐させている場合はログオンし直す)。更新は `winget upgrade --id Gyan.FFmpeg --exact` で行う。
+インストール後は、PATH の変更を反映するためにサーバーを起動し直す (常駐させている場合はログオンし直す)。VS Code など、インストール前から起動しているアプリのターミナルは古い PATH を引き継ぐため、アプリごと起動し直すか、ターミナルで次を実行して PATH を読み直す。
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+```
+
+更新は `winget upgrade --id Gyan.FFmpeg --exact` で行う。
 
 ffmpeg がなくても一覧と再生は動き、サムネイルだけが取得できない (アプリは代わりのアイコンを表示する)。
 
