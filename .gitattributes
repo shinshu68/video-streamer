@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# cmd.exe は LF のバッチファイルを正しく実行できないことがある (Flutter が生成する gradlew.bat など)
+*.bat text eol=crlf
+*.cmd text eol=crlf
