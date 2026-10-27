@@ -88,6 +88,20 @@ void main() {
     });
   });
 
+  test('thumbnailUri は動画のパスをクエリに付ける', () {
+    final client = ApiClient(
+      baseUri,
+      httpClient: MockClient((_) async => http.Response('', 200)),
+    );
+
+    final uri = client.thumbnailUri('フォルダA/動画 C#1.mp4');
+
+    expect(uri.path, '/api/thumbnail');
+    expect(uri.queryParameters, {'path': 'フォルダA/動画 C#1.mp4'});
+    expect(uri.host, '192.168.0.10');
+    expect(uri.port, 8765);
+  });
+
   test('mediaUri はパスの各要素を URL エンコードする', () {
     final client = ApiClient(
       baseUri,
