@@ -45,5 +45,13 @@ class ApiClient {
     return baseUri.replace(pathSegments: ['media', ...path.split('/')]);
   }
 
+  /// `path` の動画のサムネイル (JPEG) の URL を返す。
+  Uri thumbnailUri(String path) {
+    return baseUri.replace(
+      path: '/api/thumbnail',
+      queryParameters: {'path': path},
+    );
+  }
+
   void close() => _http.close();
 }

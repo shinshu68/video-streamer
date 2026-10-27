@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +14,24 @@ import (
 	"testing"
 
 	"github.com/shinshu68/video-streamer/server/internal/library"
+	"github.com/shinshu68/video-streamer/server/internal/thumbnail"
 )
 
 const dummyVideo = "0123456789abcdef"
+
+const dummyJPEG = "dummy jpeg"
+
+// stubGenerator は ffmpeg の代わりに、決まった中身のサムネイルを書き出す。err があれば失敗する。
+type stubGenerator struct {
+	err error
+}
+
+func (g stubGenerator) Generate(_ context.Context, _, out string) error {
+	if g.err != nil {
+		return g.err
+	}
+	return os.WriteFile(out, []byte(dummyJPEG), 0o644)
+}
 
 // newTestServer は次の構成の公開フォルダを持つテスト用サーバーを起動する。
 //
@@ -23,6 +40,11 @@ const dummyVideo = "0123456789abcdef"
 //	│   └── 動画C.mp4
 //	└── memo.txt
 func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return newTestServerWithGenerator(t, stubGenerator{})
+}
+
+func newTestServerWithGenerator(t *testing.T, gen thumbnail.Generator) *httptest.Server {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "フォルダA"), 0o755); err != nil {
@@ -39,7 +61,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewHandler(lib))
+	thumbs := thumbnail.NewCache(t.TempDir(), gen, 2)
+	srv := httptest.NewServer(NewHandler(lib, thumbs))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -194,5 +217,53 @@ func TestMedia_RejectsEncodedTraversal(t *testing.T) {
 
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", res.StatusCode)
+	}
+}
+
+func TestThumbnail_ReturnsJPEG(t *testing.T) {
+	srv := newTestServer(t)
+
+	res := get(t, srv.URL+"/api/thumbnail?path="+url.QueryEscape("フォルダA/動画C.mp4"), nil)
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("Content-Type = %q, want image/jpeg", ct)
+	}
+	if body, _ := io.ReadAll(res.Body); string(body) != dummyJPEG {
+		t.Errorf("body = %q", body)
+	}
+}
+
+func TestThumbnail_ReturnsErrorJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		gen        thumbnail.Generator
+		path       string
+		wantStatus int
+	}{
+		{"動画でない", stubGenerator{}, "memo.txt", http.StatusNotFound},
+		{"存在しない", stubGenerator{}, "missing.mp4", http.StatusNotFound},
+		{"公開フォルダの外", stubGenerator{}, "../outside.mp4", http.StatusForbidden},
+		{"生成に失敗", stubGenerator{err: errors.New("ffmpeg not found")}, "フォルダA/動画C.mp4", http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newTestServerWithGenerator(t, tt.gen)
+
+			res := get(t, srv.URL+"/api/thumbnail?path="+url.QueryEscape(tt.path), nil)
+
+			if res.StatusCode != tt.wantStatus {
+				t.Errorf("status = %d, want %d", res.StatusCode, tt.wantStatus)
+			}
+			var body map[string]string
+			if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["error"] == "" {
+				t.Errorf("body = %v, want error message", body)
+			}
+		})
 	}
 }

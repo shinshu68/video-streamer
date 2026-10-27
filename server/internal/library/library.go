@@ -166,14 +166,28 @@ func joinRel(dir, name string) string {
 	return dir + "/" + name
 }
 
-// OpenVideo は rel の動画を開く。動画でないファイルやフォルダは ErrNotFound を返す。
-func (l *Library) OpenVideo(rel string) (*os.File, fs.FileInfo, error) {
-	abs, _, err := l.Resolve(rel)
+// Video は rel の動画の実際のパス、正規化した相対パス、ファイルの情報を返す。
+// 動画でないファイルやフォルダは ErrNotFound を返す。
+func (l *Library) Video(rel string) (abs string, clean string, fi fs.FileInfo, err error) {
+	abs, clean, err = l.Resolve(rel)
 	if err != nil {
-		return nil, nil, err
+		return "", "", nil, err
 	}
 	if !IsVideoName(abs) {
-		return nil, nil, ErrNotFound
+		return "", "", nil, ErrNotFound
+	}
+	fi, err = os.Stat(abs)
+	if err != nil || !fi.Mode().IsRegular() {
+		return "", "", nil, ErrNotFound
+	}
+	return abs, clean, fi, nil
+}
+
+// OpenVideo は rel の動画を開く。動画でないファイルやフォルダは ErrNotFound を返す。
+func (l *Library) OpenVideo(rel string) (*os.File, fs.FileInfo, error) {
+	abs, _, _, err := l.Video(rel)
+	if err != nil {
+		return nil, nil, err
 	}
 	f, err := os.Open(abs)
 	if err != nil {

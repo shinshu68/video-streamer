@@ -86,16 +86,16 @@ class _EntryList extends StatelessWidget {
   }
 }
 
-class _EntryTile extends StatelessWidget {
+class _EntryTile extends ConsumerWidget {
   const _EntryTile({required this.entry});
 
   final Entry entry;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return switch (entry.type) {
       EntryType.dir => ListTile(
-        leading: const Icon(Icons.folder),
+        leading: const _LeadingBox(child: Icon(Icons.folder)),
         title: Text(entry.name),
         onTap: () => Navigator.push(
           context,
@@ -105,7 +105,11 @@ class _EntryTile extends StatelessWidget {
         ),
       ),
       EntryType.video => ListTile(
-        leading: const Icon(Icons.movie),
+        leading: _LeadingBox(
+          child: Thumbnail(
+            uri: ref.watch(apiClientProvider).thumbnailUri(entry.path),
+          ),
+        ),
         title: Text(entry.name),
         subtitle: Text(_videoDetail(entry)),
         onTap: () => Navigator.push(
@@ -114,6 +118,42 @@ class _EntryTile extends StatelessWidget {
         ),
       ),
     };
+  }
+}
+
+/// 一覧の行の先頭に置く、サムネイルと同じ 16:9 の枠。
+class _LeadingBox extends StatelessWidget {
+  const _LeadingBox({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(width: 96, height: 54, child: Center(child: child));
+  }
+}
+
+/// [uri] のサムネイル。取得中や取得できないときは動画のアイコンを出す。
+class Thumbnail extends StatelessWidget {
+  const Thumbnail({super.key, required this.uri});
+
+  final Uri uri;
+
+  @override
+  Widget build(BuildContext context) {
+    const placeholder = Icon(Icons.movie);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        uri.toString(),
+        width: 96,
+        height: 54,
+        fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, _) =>
+            frame == null ? placeholder : child,
+        errorBuilder: (_, _, _) => placeholder,
+      ),
+    );
   }
 }
 

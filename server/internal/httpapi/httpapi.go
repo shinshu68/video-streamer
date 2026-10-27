@@ -6,15 +6,20 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/shinshu68/video-streamer/server/internal/library"
+	"github.com/shinshu68/video-streamer/server/internal/thumbnail"
 )
 
-// NewHandler は lib を公開する HTTP ハンドラーを返す。
-func NewHandler(lib *library.Library) http.Handler {
+// NewHandler は lib を公開する HTTP ハンドラーを返す。サムネイルは thumbs で生成する。
+func NewHandler(lib *library.Library, thumbs *thumbnail.Cache) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/list", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, lib)
+	})
+	mux.HandleFunc("GET /api/thumbnail", func(w http.ResponseWriter, r *http.Request) {
+		handleThumbnail(w, r, lib, thumbs)
 	})
 	mux.HandleFunc("GET /media/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		handleMedia(w, r, lib)
@@ -39,6 +44,34 @@ func handleList(w http.ResponseWriter, r *http.Request, lib *library.Library) {
 		return
 	}
 	writeJSON(w, http.StatusOK, listResponse{Path: clean, Entries: entries})
+}
+
+func handleThumbnail(w http.ResponseWriter, r *http.Request, lib *library.Library, thumbs *thumbnail.Cache) {
+	video, clean, fi, err := lib.Video(r.URL.Query().Get("path"))
+	if err != nil {
+		status := statusFor(err)
+		writeJSON(w, status, errorResponse{Error: http.StatusText(status)})
+		return
+	}
+	path, err := thumbs.Path(r.Context(), video, clean, fi)
+	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		log.Printf("サムネイルを生成できません (%s): %v", clean, err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: http.StatusText(http.StatusInternalServerError)})
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		log.Printf("サムネイルを開けません (%s): %v", clean, err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: http.StatusText(http.StatusInternalServerError)})
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
 func handleMedia(w http.ResponseWriter, r *http.Request, lib *library.Library) {

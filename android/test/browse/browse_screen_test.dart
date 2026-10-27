@@ -67,6 +67,35 @@ void main() {
     expect(find.byIcon(Icons.settings), findsOneWidget);
   });
 
+  testWidgets('動画の行はサムネイルを取得し、取得できなければアイコンを出す', (tester) async {
+    await pumpBrowse(
+      tester,
+      fakeServer({
+        '': {
+          'path': '',
+          'entries': [
+            {'type': 'dir', 'name': 'フォルダA', 'path': 'フォルダA'},
+            {
+              'type': 'video',
+              'name': '動画C.mp4',
+              'path': 'フォルダA/動画C.mp4',
+              'size': 1,
+              'modified': '2026-10-25T12:00:00+09:00',
+            },
+          ],
+        },
+      }),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    final url = Uri.parse((image.image as NetworkImage).url);
+    expect(url.path, '/api/thumbnail');
+    expect(url.queryParameters, {'path': 'フォルダA/動画C.mp4'});
+    // テスト環境では画像の取得が失敗するため、代わりのアイコンになる。
+    expect(find.byIcon(Icons.movie), findsOneWidget);
+    expect(find.byIcon(Icons.folder), findsOneWidget);
+  });
+
   testWidgets('フォルダをタップするとその中の一覧を開く', (tester) async {
     await pumpBrowse(
       tester,
