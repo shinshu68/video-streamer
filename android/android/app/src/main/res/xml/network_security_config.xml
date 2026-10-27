@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- network_security_config では IP アドレスの範囲や実行時に入力したアドレスを指定できないため、
+     平文通信はアプリ全体で許可し、LAN 内に限る検証はアプリ側 (lib/settings/server_address.dart) で行う。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
