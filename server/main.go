@@ -34,12 +34,16 @@ func main() {
 	if ffmpeg == "" {
 		ffmpeg = "ffmpeg"
 	}
-	if _, err := exec.LookPath(ffmpeg); err != nil {
+	gen := thumbnail.FFmpeg{Path: ffmpeg}
+	if _, err := exec.LookPath(gen.Path); err != nil {
 		log.Printf("ffmpeg が見つからないため、サムネイルは生成できません: %v", err)
+	}
+	if _, err := exec.LookPath(gen.ProbePath()); err != nil {
+		log.Printf("ffprobe が見つからないため、サムネイルは先頭のフレームで作ります: %v", err)
 	}
 	thumbs := thumbnail.NewCache(
 		filepath.Join(exeDir(), "cache", "thumbnails"),
-		thumbnail.FFmpeg{Path: ffmpeg},
+		gen,
 		thumbnailConcurrency,
 	)
 

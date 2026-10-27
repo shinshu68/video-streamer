@@ -24,6 +24,10 @@ type Generator interface {
 // generateTimeout は1本の生成にかける時間の上限。HDD のスリープからの復帰を見込んだ長さにする。
 const generateTimeout = 60 * time.Second
 
+// formatVersion はサムネイルの作り方 (位置・大きさなど) の版。作り方を変えたら上げる。
+// キャッシュの名前に含め、前の作り方で生成したものを返さないようにする。
+const formatVersion = 2
+
 // Cache はサムネイルを dir に保存し、同じ動画の2回目以降はそれを返す。
 type Cache struct {
 	dir string
@@ -111,9 +115,12 @@ func (c *Cache) generateFile(ctx context.Context, video, path string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// cacheKey は動画を差し替えたら変わるよう、相対パス・サイズ・更新日時から名前を作る。
+// cacheKey は動画を差し替えたときや作り方を変えたときに変わるよう、
+// 作り方の版・相対パス・サイズ・更新日時から名前を作る。
 func cacheKey(rel string, fi fs.FileInfo) string {
 	h := sha256.New()
+	h.Write([]byte(strconv.Itoa(formatVersion)))
+	h.Write([]byte{0})
 	h.Write([]byte(rel))
 	h.Write([]byte{0})
 	h.Write([]byte(strconv.FormatInt(fi.Size(), 10)))
