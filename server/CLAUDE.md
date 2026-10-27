@@ -6,7 +6,7 @@ API 仕様は ../docs/api.md、配置・運用は ../docs/deployment.md を参�
 
 ## コマンド
 
-開発・テストは WSL 上で行い、Windows 用の exe をクロスビルドする。エントリポイントのパスはディレクトリ構成が決まったら更新する (現在は未定)。
+開発・テストは WSL 上で行い、Windows 用の exe をクロスビルドする。コマンドは server/ で実行する。
 
 ```fish
 go test ./...
@@ -22,6 +22,28 @@ gofmt -l .
 
 ```fish
 env GOOS=windows GOARCH=amd64 go build -o bin/video-streamer-server.exe .
+```
+
+Windows でだけ動く処理 (`*_windows.go`) のテストは WSL では実行されない。テスト用の exe をクロスビルドし、Windows の PowerShell (リポジトリのルート) で実行する。
+
+```fish
+env GOOS=windows GOARCH=amd64 go test -c -o bin/library.test.exe ./internal/library
+```
+
+```powershell
+.\server\bin\library.test.exe -test.v
+```
+
+## ディレクトリ構成
+
+```
+server/
+├── main.go               # エントリポイント。設定を読み、HTTP サーバーを起動する
+├── config.example.json   # 設定ファイルのひな形
+└── internal/
+    ├── config/           # 設定ファイルの読み込み
+    ├── library/          # 公開フォルダのパスの検証と一覧 (Windows の属性の判定は attr_windows.go)
+    └── httpapi/          # HTTP ハンドラー (docs/api.md のエンドポイント)
 ```
 
 ## ルール
