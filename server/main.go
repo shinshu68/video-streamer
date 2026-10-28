@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	lib, err := library.New(cfg.Root)
+	lib, err := library.New(cfg.Root, cfg.Cache)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func main() {
 		log.Printf("ffprobe が見つからないため、サムネイルは先頭のフレームで作ります: %v", err)
 	}
 	thumbs := thumbnail.NewCache(
-		filepath.Join(exeDir(), "cache", "thumbnails"),
+		filepath.Join(cfg.Cache, "thumbnails"),
 		gen,
 		thumbnailConcurrency,
 	)
