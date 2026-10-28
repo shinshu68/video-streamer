@@ -1,11 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../api/models.dart';
 import '../api/providers.dart';
 
+/// 動画の相対パスから、配信 URL を再生するコントローラーを作る関数。
+final videoControllerFactoryProvider =
+    Provider<VideoPlayerController Function(String path)>((ref) {
+      final client = ref.watch(apiClientProvider);
+      return (path) => VideoPlayerController.networkUrl(client.mediaUri(path));
+    });
+
 /// [entry] の動画を配信 URL から再生する画面。
+///
+/// 端末を横向きにすると全画面になり、ステータスバーとナビゲーションバーを隠す。
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key, required this.entry});
 
@@ -20,17 +32,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   late final VideoPlayerController _controller;
   late final Future<void> _initialized;
+  bool? _fullscreen;
 
   @override
   void initState() {
     super.initState();
-    final uri = ref.read(apiClientProvider).mediaUri(widget.entry.path);
-    _controller = VideoPlayerController.networkUrl(uri);
+    _controller = ref.read(videoControllerFactoryProvider)(widget.entry.path);
     _initialized = _controller.initialize().then((_) => _controller.play());
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final fullscreen =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    if (fullscreen != _fullscreen) {
+      _fullscreen = fullscreen;
+      SystemChrome.setEnabledSystemUIMode(
+        fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+    }
+  }
+
+  @override
   void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller.dispose();
     super.dispose();
   }
@@ -48,13 +74,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final fullscreen = _fullscreen!;
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(widget.entry.name),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-      ),
+      appBar: fullscreen
+          ? null
+          : AppBar(
+              title: Text(widget.entry.name),
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+            ),
       body: FutureBuilder(
         future: _initialized,
         builder: (context, snapshot) {
@@ -70,38 +99,156 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               if (value.hasError) {
                 return const _Message('再生中にエラーが発生しました');
               }
+              final video = Center(
+                child: AspectRatio(
+                  aspectRatio: value.aspectRatio,
+                  child: VideoPlayer(_controller),
+                ),
+              );
+              final progress = VideoProgressIndicator(
+                _controller,
+                allowScrubbing: true,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              );
+              final controls = _Controls(
+                value: value,
+                onPlayPause: value.isPlaying
+                    ? _controller.pause
+                    : _controller.play,
+                onBack: () => _seekBy(-_skip),
+                onForward: () => _seekBy(_skip),
+              );
+              if (fullscreen) {
+                return _FullscreenLayout(
+                  title: widget.entry.name,
+                  isPlaying: value.isPlaying,
+                  video: video,
+                  progress: progress,
+                  controls: controls,
+                );
+              }
               return Column(
                 children: [
-                  Expanded(
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: value.aspectRatio,
-                        child: VideoPlayer(_controller),
-                      ),
-                    ),
-                  ),
-                  VideoProgressIndicator(
-                    _controller,
-                    allowScrubbing: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                  ),
-                  _Controls(
-                    value: value,
-                    onPlayPause: value.isPlaying
-                        ? _controller.pause
-                        : _controller.play,
-                    onBack: () => _seekBy(-_skip),
-                    onForward: () => _seekBy(_skip),
-                  ),
+                  Expanded(child: video),
+                  progress,
+                  controls,
                 ],
               );
             },
           );
         },
       ),
+    );
+  }
+}
+
+/// 動画を画面いっぱいに出し、タップしたときだけ操作を重ねて出すレイアウト。
+///
+/// 再生中は、最後に触れてから [hideAfter] たつと操作を隠す。
+class _FullscreenLayout extends StatefulWidget {
+  const _FullscreenLayout({
+    required this.title,
+    required this.isPlaying,
+    required this.video,
+    required this.progress,
+    required this.controls,
+  });
+
+  static const hideAfter = Duration(seconds: 3);
+
+  final String title;
+  final bool isPlaying;
+  final Widget video;
+  final Widget progress;
+  final Widget controls;
+
+  @override
+  State<_FullscreenLayout> createState() => _FullscreenLayoutState();
+}
+
+class _FullscreenLayoutState extends State<_FullscreenLayout> {
+  bool _overlayVisible = false;
+  Timer? _hideTimer;
+
+  @override
+  void didUpdateWidget(_FullscreenLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !oldWidget.isPlaying && _overlayVisible) {
+      _scheduleHide();
+    }
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _toggleOverlay() {
+    setState(() => _overlayVisible = !_overlayVisible);
+    if (_overlayVisible) {
+      _scheduleHide();
+    } else {
+      _hideTimer?.cancel();
+    }
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_FullscreenLayout.hideAfter, () {
+      if (widget.isPlaying) {
+        setState(() => _overlayVisible = false);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _toggleOverlay,
+          child: widget.video,
+        ),
+        if (_overlayVisible)
+          Listener(
+            onPointerDown: (_) => _scheduleHide(),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  ColoredBox(
+                    color: Colors.black54,
+                    child: Row(
+                      children: [
+                        const BackButton(color: Colors.white),
+                        Expanded(
+                          child: Text(
+                            widget.title,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  ColoredBox(
+                    color: Colors.black54,
+                    child: Column(children: [widget.progress, widget.controls]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
