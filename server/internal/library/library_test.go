@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -279,5 +280,69 @@ func TestOpenVideo_RejectsNonVideo(t *testing.T) {
 				t.Errorf("OpenVideo(%q) error = %v, want ErrNotFound", rel, err)
 			}
 		})
+	}
+}
+
+func TestNew_ExcludedDirIsNotListedOrResolved(t *testing.T) {
+	_, root, _ := newTestLibrary(t)
+	cache := filepath.Join(root, "フォルダA", "cache")
+	mustMkdir(t, cache)
+	mustWrite(t, filepath.Join(cache, "thumb.mp4"), "dummy")
+	lib, err := New(root, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, entries, err := lib.List("フォルダA")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	for _, e := range entries {
+		if e.Name == "cache" {
+			t.Errorf("excluded dir is listed: %+v", e)
+		}
+	}
+	for _, rel := range []string{"フォルダA/cache", "フォルダA/cache/thumb.mp4"} {
+		if _, _, err := lib.Resolve(rel); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Resolve(%q) error = %v, want ErrNotFound", rel, err)
+		}
+	}
+}
+
+func TestNew_ExcludedDirIgnoresCaseOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("大文字小文字を区別しないのは Windows だけ")
+	}
+	_, root, _ := newTestLibrary(t)
+	mustMkdir(t, filepath.Join(root, "Cache"))
+	lib, err := New(root, filepath.Join(root, "CACHE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := lib.Resolve("Cache"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Resolve() error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestNew_RejectsExcludingRootOrItsParent(t *testing.T) {
+	_, root, _ := newTestLibrary(t)
+
+	for _, ex := range []string{root, filepath.Dir(root)} {
+		if _, err := New(root, ex); err == nil {
+			t.Errorf("New(root, %q) error = nil, want error", ex)
+		}
+	}
+}
+
+func TestNew_AllowsExcludedDirOutsideRoot(t *testing.T) {
+	_, root, outside := newTestLibrary(t)
+
+	lib, err := New(root, outside)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, _, err := lib.Resolve("フォルダA"); err != nil {
+		t.Errorf("Resolve() error = %v", err)
 	}
 }

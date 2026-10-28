@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -40,17 +41,53 @@ type Entry struct {
 
 // Library は1つの公開フォルダを表す。
 type Library struct {
-	root string
+	root     string
+	excluded []string
 }
 
 // New は root を公開フォルダとする Library を作る。
+// excluded のフォルダ (サーバーのキャッシュなど) は、root の中にあっても扱わない。
 // 外付けHDDが未接続でも起動できるよう、root の存在はここでは確かめない。
-func New(root string) (*Library, error) {
+func New(root string, excluded ...string) (*Library, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("公開フォルダのパスを解決できません: %w", err)
 	}
-	return &Library{root: abs}, nil
+	l := &Library{root: abs}
+	for _, ex := range excluded {
+		exAbs, err := filepath.Abs(ex)
+		if err != nil {
+			return nil, fmt.Errorf("除外するフォルダのパスを解決できません: %w", err)
+		}
+		if contains(exAbs, abs) {
+			return nil, fmt.Errorf("公開フォルダ %s を含むフォルダ %s は除外できません", abs, exAbs)
+		}
+		l.excluded = append(l.excluded, exAbs)
+	}
+	return l, nil
+}
+
+// contains は dir が path そのものか、path を含むフォルダかを返す。
+func contains(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func (l *Library) isExcluded(abs string) bool {
+	for _, ex := range l.excluded {
+		if samePath(abs, ex) {
+			return true
+		}
+	}
+	return false
+}
+
+// samePath は2つの絶対パスが同じ場所を指すかを返す。Windows のパスは大文字小文字を区別しない。
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // Resolve は公開フォルダからの相対パス rel を検証し、実際のパスと、
@@ -70,7 +107,7 @@ func (l *Library) Resolve(rel string) (abs string, clean string, err error) {
 		if err != nil {
 			return "", "", ErrNotFound
 		}
-		if !isPlainDirOrFile(fi.Mode()) || hasHiddenOrSystemAttr(fi) {
+		if !isPlainDirOrFile(fi.Mode()) || hasHiddenOrSystemAttr(fi) || l.isExcluded(abs) {
 			return "", "", ErrNotFound
 		}
 	}
@@ -134,7 +171,7 @@ func (l *Library) List(rel string) (clean string, entries []Entry, err error) {
 			// 一覧を作る間に消されたファイルは、一覧から外すだけでよい。
 			continue
 		}
-		if hasHiddenOrSystemAttr(info) {
+		if hasHiddenOrSystemAttr(info) || l.isExcluded(filepath.Join(abs, name)) {
 			continue
 		}
 		path := joinRel(clean, name)

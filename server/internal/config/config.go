@@ -15,6 +15,8 @@ type Config struct {
 	Root string `json:"root"`
 	// Port は待ち受けるポート番号。
 	Port int `json:"port"`
+	// Cache はサムネイルなどのキャッシュを置くフォルダのパス。
+	Cache string `json:"cache"`
 	// FFmpeg は ffmpeg の実行ファイルのパス。省略時は空文字列。
 	FFmpeg string `json:"ffmpeg"`
 }
@@ -38,6 +40,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return Config{}, fmt.Errorf("設定ファイルの port が不正です: %d", cfg.Port)
+	}
+	if cfg.Cache == "" {
+		return Config{}, errors.New("設定ファイルに cache がありません")
 	}
 	return cfg, nil
 }

@@ -15,20 +15,20 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-func TestLoad_ReadsRootAndPort(t *testing.T) {
-	path := writeConfig(t, `{"root": "E:\\Videos", "port": 8765}`)
+func TestLoad_ReadsRootPortAndCache(t *testing.T) {
+	path := writeConfig(t, `{"root": "E:\\Videos", "port": 8765, "cache": "E:\\cache"}`)
 
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Root != `E:\Videos` || cfg.Port != 8765 || cfg.FFmpeg != "" {
+	if cfg.Root != `E:\Videos` || cfg.Port != 8765 || cfg.Cache != `E:\cache` || cfg.FFmpeg != "" {
 		t.Errorf("Load() = %+v", cfg)
 	}
 }
 
 func TestLoad_ReadsOptionalFFmpegPath(t *testing.T) {
-	path := writeConfig(t, `{"root": "E:\\Videos", "port": 8765, "ffmpeg": "C:\\tools\\ffmpeg.exe"}`)
+	path := writeConfig(t, `{"root": "E:\\Videos", "port": 8765, "cache": "E:\\cache", "ffmpeg":"C:\\tools\\ffmpeg.exe"}`)
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -44,10 +44,11 @@ func TestLoad_RejectsInvalidConfig(t *testing.T) {
 		name    string
 		content string
 	}{
-		{"root がない", `{"port": 8765}`},
-		{"port がない", `{"root": "/videos"}`},
-		{"port が範囲外", `{"root": "/videos", "port": 70000}`},
-		{"未知の項目がある", `{"root": "/videos", "port": 8765, "prot": 1}`},
+		{"root がない", `{"port": 8765, "cache": "/cache"}`},
+		{"port がない", `{"root": "/videos", "cache": "/cache"}`},
+		{"port が範囲外", `{"root": "/videos", "port": 70000, "cache": "/cache"}`},
+		{"cache がない", `{"root": "/videos", "port": 8765}`},
+		{"未知の項目がある", `{"root": "/videos", "port": 8765, "cache": "/cache", "prot": 1}`},
 		{"JSON として壊れている", `{"root": `},
 	}
 	for _, tt := range tests {

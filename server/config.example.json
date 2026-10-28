@@ -1,4 +1,5 @@
 {
   "root": "E:\\Videos",
-  "port": 8765
+  "port": 8765,
+  "cache": "E:\\video-streamer-cache"
 }
