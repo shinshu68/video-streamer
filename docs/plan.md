@@ -40,7 +40,7 @@ SMB 共有を Android から直接読む方法や既製のメディアサーバ�
 | 対象 | 選んだ技術 | 理由 |
 | --- | --- | --- |
 | リポジトリ構成 | モノレポ | API を変えるときにサーバーとアプリを1つのブランチで直せ、Claude が両方の文脈を持って作業できるため |
-| サーバー | Go | `http.ServeContent` が Range リクエストを自動で処理する。WSL から Windows 用の単一 exe をクロスビルドでき、Windows 側に実行環境を用意せずに済むため |
+| サーバー | Go | `http.ServeContent` が Range リクエストを自動で処理する。単一の exe にビルドでき、動かす PC に実行環境を入れずに配置できるため |
 | アプリ | Flutter | 既存の Flutter プロジェクト (wakeup-alarm) の環境やビルド手順を流用できる。`video_player` パッケージは Android では内部で ExoPlayer を使い、mp4 の HTTP ストリーミングとシークに対応しているため。将来 iOS 版を作る余地も残る |
 | サムネイル生成 | ffmpeg | 動画から任意の位置のフレームを画像として切り出せるため |
 

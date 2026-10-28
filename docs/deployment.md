@@ -4,7 +4,7 @@
 
 ## 配置
 
-1. WSL 上で Windows 用の exe をクロスビルドする (コマンドは server/CLAUDE.md を参照)
+1. Windows 上で exe をビルドする (コマンドは server/CLAUDE.md を参照)
 2. exe と設定ファイル (`config.json`) を Windows 側の任意のフォルダに置く (置き場所は未定)
 3. 設定ファイルに公開フォルダのパスとポート番号を書く
 

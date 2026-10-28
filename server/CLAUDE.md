@@ -6,32 +6,22 @@ API 仕様は ../docs/api.md、配置・運用は ../docs/deployment.md を参�
 
 ## コマンド
 
-開発・テストは WSL 上で行い、Windows 用の exe をクロスビルドする。コマンドは server/ で実行する。
+開発・テスト・ビルドは Windows の PowerShell で行う。コマンドは server/ で実行する。`*_windows.go` のテストも `go test` でそのまま実行される。
 
-```fish
+```powershell
 go test ./...
 ```
 
-```fish
+```powershell
 go vet ./...
 ```
 
-```fish
+```powershell
 gofmt -l .
 ```
 
-```fish
-env GOOS=windows GOARCH=amd64 go build -o bin/video-streamer-server.exe .
-```
-
-Windows でだけ動く処理 (`*_windows.go`) のテストは WSL では実行されない。テスト用の exe をクロスビルドし、Windows の PowerShell (リポジトリのルート) で実行する。
-
-```fish
-env GOOS=windows GOARCH=amd64 go test -c -o bin/library.test.exe ./internal/library
-```
-
 ```powershell
-.\server\bin\library.test.exe -test.v
+go build -o bin/video-streamer-server.exe .
 ```
 
 ## ディレクトリ構成
@@ -49,7 +39,7 @@ server/
 
 ## ルール
 
-- 本番の実行環境は Windows。WSL 上で動かすのは開発中の確認だけとし、Windows とのパスの違い (区切り文字、ドライブ文字) を前提にしたコードを書く
+- 本番の実行環境は Windows。Windows のパス (区切り文字、ドライブ文字) を前提にしたコードを書く
 - 公開フォルダのパスやポート番号はコードに書かず、設定ファイルから読む
 - 返してよいのは公開フォルダ配下のファイルだけ。リクエストで渡されたパスは必ず正規化し、公開フォルダの外 (`..` やシンボリックリンク経由を含む) を指す場合は拒否する
 - 動画の配信は `http.ServeContent` を使い、Range リクエストに対応させる
