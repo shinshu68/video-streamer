@@ -79,17 +79,25 @@ class _EntryList extends StatelessWidget {
         ],
       );
     }
+    final videos = [
+      for (final entry in entries)
+        if (entry.type == EntryType.video) entry,
+    ];
     return ListView.builder(
       itemCount: entries.length,
-      itemBuilder: (context, i) => _EntryTile(entry: entries[i]),
+      itemBuilder: (context, i) =>
+          _EntryTile(entry: entries[i], videos: videos),
     );
   }
 }
 
 class _EntryTile extends ConsumerWidget {
-  const _EntryTile({required this.entry});
+  const _EntryTile({required this.entry, required this.videos});
 
   final Entry entry;
+
+  /// 再生画面で前後に切り替える、同じフォルダの動画。
+  final List<Entry> videos;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -111,7 +119,12 @@ class _EntryTile extends ConsumerWidget {
         ),
         onTap: () => Navigator.push(
           context,
-          MaterialPageRoute<void>(builder: (_) => PlayerScreen(entry: entry)),
+          MaterialPageRoute<void>(
+            builder: (_) => PlayerScreen(
+              entries: videos,
+              initialIndex: videos.indexOf(entry),
+            ),
+          ),
         ),
       ),
     };
