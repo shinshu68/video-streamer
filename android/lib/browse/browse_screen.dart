@@ -104,14 +104,11 @@ class _EntryTile extends ConsumerWidget {
           ),
         ),
       ),
-      EntryType.video => ListTile(
-        leading: _LeadingBox(
-          child: Thumbnail(
-            uri: ref.watch(apiClientProvider).thumbnailUri(entry.path),
-          ),
+      EntryType.video => VideoTile(
+        entry: entry,
+        thumbnail: NetworkImage(
+          ref.watch(apiClientProvider).thumbnailUri(entry.path).toString(),
         ),
-        title: Text(entry.name),
-        subtitle: Text(_videoDetail(entry)),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute<void>(builder: (_) => PlayerScreen(entry: entry)),
@@ -121,37 +118,156 @@ class _EntryTile extends ConsumerWidget {
   }
 }
 
-/// 一覧の行の先頭に置く、サムネイルと同じ 16:9 の枠。
-class _LeadingBox extends StatelessWidget {
-  const _LeadingBox({required this.child});
+/// 動画の行。サムネイル、名前、サイズと更新日時を並べる。
+///
+/// 縦長のサムネイルのときは、その分だけ行を高くする。
+// ListTile は先頭の部品の高さを 56 までに抑えるため、縦長の枠が収まらない。
+// 余白と文字のスタイルは ListTile の2行の表示に合わせている。
+class VideoTile extends StatelessWidget {
+  const VideoTile({
+    super.key,
+    required this.entry,
+    required this.thumbnail,
+    required this.onTap,
+  });
 
+  final Entry entry;
+  final ImageProvider thumbnail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 72),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 24, 8),
+          child: Row(
+            children: [
+              Thumbnail(image: thumbnail),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(entry.name, style: theme.textTheme.bodyLarge),
+                    Text(
+                      _videoDetail(entry),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一覧の行の先頭に置く枠。幅は横長のサムネイルにそろえ、行の文字の位置をそろえる。
+class _LeadingBox extends StatelessWidget {
+  const _LeadingBox({this.height = _thumbnailShortSide, required this.child});
+
+  final double height;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(width: 96, height: 54, child: Center(child: child));
+    return SizedBox(
+      width: _thumbnailLongSide,
+      height: height,
+      child: Center(child: child),
+    );
   }
 }
 
-/// [uri] のサムネイル。取得中や取得できないときは動画のアイコンを出す。
-class Thumbnail extends StatelessWidget {
-  const Thumbnail({super.key, required this.uri});
+const _thumbnailLongSide = 96.0;
+const _thumbnailShortSide = 54.0;
 
-  final Uri uri;
+/// [image] のサムネイル。縦長の画像は縦長の枠で出す。
+///
+/// 取得中や取得できないときは、横長の枠に動画のアイコンを出す。
+class Thumbnail extends StatefulWidget {
+  const Thumbnail({super.key, required this.image});
+
+  final ImageProvider image;
+
+  @override
+  State<Thumbnail> createState() => _ThumbnailState();
+}
+
+// 縦横比で枠を決めるため、Image ではなく画像を自分で取得して RawImage で描く。
+// Image の frameBuilder には読み込んだ画像の大きさが渡されない。
+class _ThumbnailState extends State<Thumbnail> {
+  ImageStream? _stream;
+  ImageInfo? _info;
+  late final _listener = ImageStreamListener(_onImage, onError: (_, _) {});
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(Thumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.image != oldWidget.image) {
+      _resolve();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stream?.removeListener(_listener);
+    _info?.dispose();
+    super.dispose();
+  }
+
+  void _resolve() {
+    final stream = widget.image.resolve(createLocalImageConfiguration(context));
+    if (stream.key == _stream?.key) {
+      return;
+    }
+    _stream?.removeListener(_listener);
+    _info?.dispose();
+    _info = null;
+    _stream = stream..addListener(_listener);
+  }
+
+  void _onImage(ImageInfo info, bool _) {
+    setState(() {
+      _info?.dispose();
+      _info = info;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    const placeholder = Icon(Icons.movie);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: Image.network(
-        uri.toString(),
-        width: 96,
-        height: 54,
-        fit: BoxFit.cover,
-        frameBuilder: (context, child, frame, _) =>
-            frame == null ? placeholder : child,
-        errorBuilder: (_, _, _) => placeholder,
+    final image = _info?.image;
+    if (image == null) {
+      return const _LeadingBox(child: Icon(Icons.movie));
+    }
+    final portrait = image.height > image.width;
+    final (width, height) = portrait
+        ? (_thumbnailShortSide, _thumbnailLongSide)
+        : (_thumbnailLongSide, _thumbnailShortSide);
+    return _LeadingBox(
+      height: height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: RawImage(
+          image: image,
+          width: width,
+          height: height,
+          fit: BoxFit.cover,
+        ),
       ),
     );
   }

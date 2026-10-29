@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:video_streamer/api/api_client.dart';
+import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/api/providers.dart';
 import 'package:video_streamer/browse/browse_screen.dart';
 
@@ -37,6 +39,45 @@ Future<void> pumpBrowse(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// [width]×[height] の PNG 画像。
+Future<MemoryImage> pngImage(int width, int height) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(
+    recorder,
+  ).drawRect(Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()), Paint());
+  final image = await recorder.endRecording().toImage(width, height);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return MemoryImage(data!.buffer.asUint8List());
+}
+
+/// [image] をサムネイルにした動画の行を置き、画像を読み込み終えるまで進める。
+Future<void> pumpVideoTile(WidgetTester tester, ImageProvider image) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Column(
+          children: [
+            VideoTile(
+              entry: const Entry(
+                type: EntryType.video,
+                name: '動画C.mp4',
+                path: '動画C.mp4',
+              ),
+              thumbnail: image,
+              onTap: () {},
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  await tester.runAsync(
+    () => precacheImage(image, tester.element(find.byType(Thumbnail))),
+  );
+  await tester.pump();
 }
 
 void main() {
@@ -87,13 +128,28 @@ void main() {
       }),
     );
 
-    final image = tester.widget<Image>(find.byType(Image));
-    final url = Uri.parse((image.image as NetworkImage).url);
+    final thumbnail = tester.widget<Thumbnail>(find.byType(Thumbnail));
+    final url = Uri.parse((thumbnail.image as NetworkImage).url);
     expect(url.path, '/api/thumbnail');
     expect(url.queryParameters, {'path': 'フォルダA/動画C.mp4'});
     // テスト環境では画像の取得が失敗するため、代わりのアイコンになる。
     expect(find.byIcon(Icons.movie), findsOneWidget);
     expect(find.byIcon(Icons.folder), findsOneWidget);
+  });
+
+  testWidgets('横長のサムネイルは横長の枠で出す', (tester) async {
+    final image = (await tester.runAsync(() => pngImage(320, 180)))!;
+    await pumpVideoTile(tester, image);
+
+    expect(tester.getSize(find.byType(RawImage)), const Size(96, 54));
+  });
+
+  testWidgets('縦長のサムネイルは縦長の枠で出し、行をその分高くする', (tester) async {
+    final image = (await tester.runAsync(() => pngImage(180, 320)))!;
+    await pumpVideoTile(tester, image);
+
+    expect(tester.getSize(find.byType(RawImage)), const Size(54, 96));
+    expect(tester.getSize(find.byType(VideoTile)).height, greaterThan(96));
   });
 
   testWidgets('フォルダをタップするとその中の一覧を開く', (tester) async {
