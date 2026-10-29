@@ -1,48 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:video_player/video_player.dart';
 import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
 
-/// プラットフォームの再生機能を使わずに、再生中の状態だけを持つコントローラー。
-class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
-    implements VideoPlayerController {
-  FakeVideoPlayerController()
-    : super(VideoPlayerValue(duration: const Duration(minutes: 1)));
-
-  @override
-  int get playerId => VideoPlayerController.kUninitializedPlayerId;
-
-  @override
-  Future<void> initialize() async {
-    value = value.copyWith(isInitialized: true, size: const Size(1920, 1080));
-  }
-
-  @override
-  Future<void> play() async => value = value.copyWith(isPlaying: true);
-
-  @override
-  Future<void> pause() async => value = value.copyWith(isPlaying: false);
-
-  @override
-  Future<void> seekTo(Duration position) async =>
-      value = value.copyWith(position: position);
-
-  @override
-  Future<void> dispose() async => super.dispose();
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 const portrait = Size(1080, 2400);
 const landscape = Size(2400, 1080);
 
-/// 再生画面を [size] の画面で開き、送られたシステム UI のモードを記録する。
-Future<List<String>> pumpPlayer(WidgetTester tester, Size size) async {
+const videos = [
+  Entry(type: EntryType.video, name: '動画A.mp4', path: '動画A.mp4'),
+  Entry(type: EntryType.video, name: '動画B.mp4', path: '動画B.mp4'),
+  Entry(type: EntryType.video, name: '動画C.mp4', path: '動画C.mp4'),
+];
+
+/// [videos] の [initialIndex] 番目から再生画面を [size] の画面で開き、
+/// 送られたシステム UI のモードを記録する。作ったコントローラーは [controllers] に入れる。
+Future<List<String>> pumpPlayer(
+  WidgetTester tester,
+  Size size, {
+  int initialIndex = 0,
+  List<FakeVideoPlayerController>? controllers,
+}) async {
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
   final systemUiModes = <String>[];
@@ -58,19 +38,24 @@ Future<List<String>> pumpPlayer(WidgetTester tester, Size size) async {
   await tester.pumpWidget(
     testScope(
       overrides: [
-        videoControllerFactoryProvider.overrideWithValue(
-          (_) => FakeVideoPlayerController(),
-        ),
+        videoControllerFactoryProvider.overrideWithValue((path) {
+          final controller = FakeVideoPlayerController(path);
+          controllers?.add(controller);
+          return controller;
+        }),
       ],
-      child: const MaterialApp(
-        home: PlayerScreen(
-          entry: Entry(type: EntryType.video, name: '動画A.mp4', path: '動画A.mp4'),
-        ),
+      child: MaterialApp(
+        home: PlayerScreen(entries: videos, initialIndex: initialIndex),
       ),
     ),
   );
   await tester.pump();
   return systemUiModes;
+}
+
+Future<void> swipe(WidgetTester tester, double dy) async {
+  await tester.fling(find.byType(PageView), Offset(0, dy), 1000);
+  await tester.pumpAndSettle();
 }
 
 Future<void> rotate(WidgetTester tester, Size size) async {
@@ -165,5 +150,57 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     expect(modes.last, 'SystemUiMode.edgeToEdge');
+  });
+
+  testWidgets('上にスワイプすると次の動画を再生し、前の動画を破棄する', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(tester, portrait, controllers: controllers);
+
+    await swipe(tester, -300);
+
+    expect(find.text('動画B.mp4'), findsOneWidget);
+    expect(controllers.map((c) => c.path), ['動画A.mp4', '動画B.mp4']);
+    expect(controllers[0].disposed, isTrue);
+    expect(controllers[1].value.isPlaying, isTrue);
+  });
+
+  testWidgets('下にスワイプすると前の動画を再生する', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(
+      tester,
+      portrait,
+      initialIndex: 1,
+      controllers: controllers,
+    );
+
+    await swipe(tester, 300);
+
+    expect(find.text('動画A.mp4'), findsOneWidget);
+    expect(controllers.last.path, '動画A.mp4');
+  });
+
+  testWidgets('先頭より前、末尾より後には切り替えない', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(tester, portrait, controllers: controllers);
+    await swipe(tester, 300);
+    expect(find.text('動画A.mp4'), findsOneWidget);
+
+    await swipe(tester, -300);
+    await swipe(tester, -300);
+    await swipe(tester, -300);
+    expect(find.text('動画C.mp4'), findsOneWidget);
+    expect(controllers.map((c) => c.path), ['動画A.mp4', '動画B.mp4', '動画C.mp4']);
+  });
+
+  testWidgets('横向きではスワイプしても切り替えない', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(tester, landscape, controllers: controllers);
+
+    await tester.fling(find.byType(PageView), const Offset(0, -300), 1000);
+    await tester.pump();
+    await rotate(tester, portrait);
+
+    expect(find.text('動画A.mp4'), findsOneWidget);
+    expect(controllers.map((c) => c.path), ['動画A.mp4']);
   });
 }

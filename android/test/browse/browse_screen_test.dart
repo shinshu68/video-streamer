@@ -9,6 +9,7 @@ import 'package:video_streamer/api/api_client.dart';
 import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/api/providers.dart';
 import 'package:video_streamer/browse/browse_screen.dart';
+import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
 
@@ -34,7 +35,12 @@ Future<void> pumpBrowse(
 }) async {
   await tester.pumpWidget(
     testScope(
-      overrides: [apiClientProvider.overrideWithValue(client)],
+      overrides: [
+        apiClientProvider.overrideWithValue(client),
+        videoControllerFactoryProvider.overrideWithValue(
+          FakeVideoPlayerController.new,
+        ),
+      ],
       child: MaterialApp(home: BrowseScreen(path: path)),
     ),
   );
@@ -176,6 +182,41 @@ void main() {
 
     expect(find.text('サブフォルダB'), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsNothing);
+  });
+
+  testWidgets('動画をタップすると、同じフォルダの動画を前後に切り替えられる再生画面を開く', (tester) async {
+    Map<String, Object> video(String name) => {
+      'type': 'video',
+      'name': name,
+      'path': name,
+      'size': 1,
+      'modified': '2026-10-25T12:00:00+09:00',
+    };
+    await pumpBrowse(
+      tester,
+      fakeServer({
+        '': {
+          'path': '',
+          'entries': [
+            video('動画A.mp4'),
+            {'type': 'dir', 'name': 'フォルダB', 'path': 'フォルダB'},
+            video('動画C.mp4'),
+            video('動画D.mp4'),
+          ],
+        },
+      }),
+    );
+
+    await tester.tap(find.text('動画C.mp4'));
+    await tester.pumpAndSettle();
+
+    final player = tester.widget<PlayerScreen>(find.byType(PlayerScreen));
+    expect(player.entries.map((e) => e.name), [
+      '動画A.mp4',
+      '動画C.mp4',
+      '動画D.mp4',
+    ]);
+    expect(player.initialIndex, 1);
   });
 
   testWidgets('空のフォルダではその旨を表示する', (tester) async {
