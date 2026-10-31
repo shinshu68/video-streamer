@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../api/models.dart';
 import '../api/providers.dart';
 import '../favorites/favorite_button.dart';
+import 'picture_in_picture.dart';
 
 /// 動画の相対パスから、配信 URL を再生するコントローラーを作る関数。
 final videoControllerFactoryProvider =
@@ -20,7 +21,8 @@ final videoControllerFactoryProvider =
 ///
 /// 縦向きでは上下のスワイプで前後の動画に切り替える。
 /// 端末を横向きにすると全画面になり、ステータスバーとナビゲーションバーを隠す。
-class PlayerScreen extends StatefulWidget {
+/// ピクチャーインピクチャーの小窓では動画だけを出す。
+class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
     super.key,
     required this.entries,
@@ -31,13 +33,26 @@ class PlayerScreen extends StatefulWidget {
   final int initialIndex;
 
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final _pageController = PageController(initialPage: widget.initialIndex);
   late int _current = widget.initialIndex;
   bool? _fullscreen;
+  bool _pictureInPicture = false;
+  late final StreamSubscription<bool> _modeChanges;
+  late final StreamSubscription<PictureInPictureAction> _actions;
+
+  @override
+  void initState() {
+    super.initState();
+    final pictureInPicture = ref.read(pictureInPictureProvider);
+    _modeChanges = pictureInPicture.modeChanges.listen(
+      (active) => setState(() => _pictureInPicture = active),
+    );
+    _actions = pictureInPicture.actions.listen(_onPictureInPictureAction);
+  }
 
   @override
   void didChangeDependencies() {
@@ -55,6 +70,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _modeChanges.cancel();
+    _actions.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -71,12 +88,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return false;
   }
 
+  void _onPictureInPictureAction(PictureInPictureAction action) {
+    final page = switch (action) {
+      PictureInPictureAction.previous => _current - 1,
+      PictureInPictureAction.next => _current + 1,
+      PictureInPictureAction.playPause => _current,
+    };
+    if (page != _current && page >= 0 && page < widget.entries.length) {
+      _pageController.jumpToPage(page);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final fullscreen = _fullscreen!;
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: fullscreen
+      appBar: fullscreen || _pictureInPicture
           ? null
           : AppBar(
               title: Text(widget.entries[_current].name),
@@ -95,6 +123,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             entry: widget.entries[i],
             active: i == _current,
             fullscreen: fullscreen,
+            pictureInPicture: _pictureInPicture,
+            hasPrevious: i > 0,
+            hasNext: i < widget.entries.length - 1,
           ),
         ),
       ),
@@ -108,11 +139,17 @@ class _VideoPage extends ConsumerStatefulWidget {
     required this.entry,
     required this.active,
     required this.fullscreen,
+    required this.pictureInPicture,
+    required this.hasPrevious,
+    required this.hasNext,
   });
 
   final Entry entry;
   final bool active;
   final bool fullscreen;
+  final bool pictureInPicture;
+  final bool hasPrevious;
+  final bool hasNext;
 
   @override
   ConsumerState<_VideoPage> createState() => _VideoPageState();
@@ -123,10 +160,17 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
 
   VideoPlayerController? _controller;
   Future<void>? _initialized;
+  PictureInPictureState? _sentState;
+  late final StreamSubscription<PictureInPictureAction> _actions;
 
   @override
   void initState() {
     super.initState();
+    _actions = ref
+        .read(pictureInPictureProvider)
+        .actions
+        .where((action) => action == PictureInPictureAction.playPause)
+        .listen((_) => _togglePlayPause());
     if (widget.active) {
       _start();
     }
@@ -142,6 +186,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
 
   @override
   void dispose() {
+    _actions.cancel();
     _controller?.dispose();
     super.dispose();
   }
@@ -151,6 +196,8 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
       widget.entry.path,
     );
     _controller = controller;
+    controller.addListener(_updatePictureInPicture);
+    _updatePictureInPicture();
     _initialized = controller.initialize().then((_) => controller.play());
   }
 
@@ -158,6 +205,41 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
     _controller?.dispose();
     _controller = null;
     _initialized = null;
+  }
+
+  void _togglePlayPause() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    controller.value.isPlaying ? controller.pause() : controller.play();
+  }
+
+  PictureInPictureState _pictureInPictureState() {
+    final value = _controller!.value;
+    return (
+      size: value.size,
+      isPlaying: value.isPlaying,
+      hasPrevious: widget.hasPrevious,
+      hasNext: widget.hasNext,
+    );
+  }
+
+  void _enterPictureInPicture() {
+    final state = _pictureInPictureState();
+    _sentState = state;
+    ref.read(pictureInPictureProvider).enter(state);
+  }
+
+  void _updatePictureInPicture() {
+    if (!widget.pictureInPicture) {
+      return;
+    }
+    final state = _pictureInPictureState();
+    if (state != _sentState) {
+      _sentState = state;
+      ref.read(pictureInPictureProvider).update(state);
+    }
   }
 
   void _seekBy(Duration offset) {
@@ -199,6 +281,16 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                 child: VideoPlayer(controller),
               ),
             );
+            if (widget.pictureInPicture) {
+              return video;
+            }
+            final actions = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PictureInPictureButton(onPressed: _enterPictureInPicture),
+                FavoriteButton(entry: widget.entry),
+              ],
+            );
             final progress = VideoProgressIndicator(
               controller,
               allowScrubbing: true,
@@ -206,7 +298,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
             );
             final controls = _Controls(
               value: value,
-              onPlayPause: value.isPlaying ? controller.pause : controller.play,
+              onPlayPause: _togglePlayPause,
               onBack: () => _seekBy(-_skip),
               onForward: () => _seekBy(_skip),
             );
@@ -215,7 +307,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                 title: widget.entry.name,
                 isPlaying: value.isPlaying,
                 video: video,
-                favorite: FavoriteButton(entry: widget.entry),
+                actions: actions,
                 progress: progress,
                 controls: controls,
               );
@@ -227,11 +319,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                     fit: StackFit.expand,
                     children: [
                       video,
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        child: FavoriteButton(entry: widget.entry),
-                      ),
+                      Positioned(right: 8, bottom: 8, child: actions),
                     ],
                   ),
                 ),
@@ -254,7 +342,7 @@ class _FullscreenLayout extends StatefulWidget {
     required this.title,
     required this.isPlaying,
     required this.video,
-    required this.favorite,
+    required this.actions,
     required this.progress,
     required this.controls,
   });
@@ -264,7 +352,7 @@ class _FullscreenLayout extends StatefulWidget {
   final String title;
   final bool isPlaying;
   final Widget video;
-  final Widget favorite;
+  final Widget actions;
   final Widget progress;
   final Widget controls;
 
@@ -349,7 +437,7 @@ class _FullscreenLayoutState extends State<_FullscreenLayout> {
                       children: [
                         Align(
                           alignment: Alignment.centerRight,
-                          child: widget.favorite,
+                          child: widget.actions,
                         ),
                         widget.progress,
                         widget.controls,
@@ -361,6 +449,30 @@ class _FullscreenLayoutState extends State<_FullscreenLayout> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// ピクチャーインピクチャーの小窓に入るボタン。対応していない端末では何も出さない。
+class _PictureInPictureButton extends ConsumerWidget {
+  const _PictureInPictureButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(pictureInPictureSupportedProvider).value != true) {
+      return const SizedBox.shrink();
+    }
+    return IconButton(
+      icon: const Icon(
+        Icons.picture_in_picture_alt,
+        color: Colors.white,
+        // 明るい動画に重ねても見えるようにする。
+        shadows: [Shadow(blurRadius: 4)],
+      ),
+      tooltip: 'ピクチャーインピクチャー',
+      onPressed: onPressed,
     );
   }
 }

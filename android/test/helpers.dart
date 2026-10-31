@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_streamer/favorites/favorites.dart';
+import 'package:video_streamer/player/picture_in_picture.dart';
 import 'package:video_streamer/settings/server_address.dart';
 
 /// 端末に保存する代わりにメモリに持つストレージ。
@@ -29,6 +32,39 @@ class InMemoryFavoritesStorage implements FavoritesStorage {
 
   @override
   Future<void> save(List<Favorite> favorites) async => saved = favorites;
+}
+
+/// 端末の小窓の代わりに、送られた状態を記録し、通知をテストから送れるようにする。
+class FakePictureInPicture implements PictureInPicture {
+  FakePictureInPicture({this.supported = true});
+
+  final bool supported;
+  final entered = <PictureInPictureState>[];
+  final updated = <PictureInPictureState>[];
+
+  final _modeChanges = StreamController<bool>.broadcast(sync: true);
+  final _actions = StreamController<PictureInPictureAction>.broadcast(
+    sync: true,
+  );
+
+  void changeMode(bool active) => _modeChanges.add(active);
+
+  void sendAction(PictureInPictureAction action) => _actions.add(action);
+
+  @override
+  Stream<bool> get modeChanges => _modeChanges.stream;
+
+  @override
+  Stream<PictureInPictureAction> get actions => _actions.stream;
+
+  @override
+  Future<bool> isSupported() async => supported;
+
+  @override
+  Future<void> enter(PictureInPictureState state) async => entered.add(state);
+
+  @override
+  Future<void> update(PictureInPictureState state) async => updated.add(state);
 }
 
 /// テスト用の ProviderScope。自動の再試行はタイマーが残るため止める。
