@@ -144,25 +144,99 @@ func TestCache_LimitsConcurrentGeneration(t *testing.T) {
 	}
 }
 
-func TestCache_ReturnsErrorAndRetriesNextTime(t *testing.T) {
-	gen := &fakeGenerator{err: errors.New("broken video")}
+func TestCache_RemembersFailureUntilRetryTime(t *testing.T) {
+	broken := errors.New("broken video")
+	gen := &fakeGenerator{err: broken}
 	dir := t.TempDir()
 	cache := NewCache(dir, gen, 2)
+	now := time.Now()
+	cache.now = func() time.Time { return now }
 	video, fi := fakeVideo(t, t.TempDir(), "a.mp4")
 
-	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); err == nil {
-		t.Fatal("Path() error = nil, want error")
+	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); !errors.Is(err, broken) {
+		t.Fatalf("Path() error = %v, want %v", err, broken)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Errorf("cache dir has leftover files: %v", entries)
 	}
 
 	gen.err = nil
+	now = now.Add(failureRetryAfter - time.Second)
+	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); !errors.Is(err, broken) {
+		t.Errorf("Path() error = %v, want %v", err, broken)
+	}
+	if got := gen.calls.Load(); got != 1 {
+		t.Errorf("Generate called %d times, want 1", got)
+	}
+
+	now = now.Add(time.Second)
 	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); err != nil {
 		t.Fatalf("Path() error = %v", err)
 	}
 	if got := gen.calls.Load(); got != 2 {
 		t.Errorf("Generate called %d times, want 2", got)
+	}
+}
+
+func TestCache_RetriesImmediatelyWhenVideoChangesAfterFailure(t *testing.T) {
+	gen := &fakeGenerator{err: errors.New("broken video")}
+	cache := NewCache(t.TempDir(), gen, 2)
+	video, before := fakeVideo(t, t.TempDir(), "a.mp4")
+	if _, err := cache.Path(context.Background(), video, "a.mp4", before); err == nil {
+		t.Fatal("Path() error = nil, want error")
+	}
+
+	gen.err = nil
+	if err := os.Chtimes(video, time.Now(), before.ModTime().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(video)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := cache.Path(context.Background(), video, "a.mp4", after); err != nil {
+		t.Fatalf("Path() error = %v", err)
+	}
+}
+
+func TestCache_DoesNotRememberFailureUnrelatedToVideo(t *testing.T) {
+	gen := &fakeGenerator{}
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "cache")
+	if err := os.WriteFile(dir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewCache(dir, gen, 2)
+	video, fi := fakeVideo(t, t.TempDir(), "a.mp4")
+	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); err == nil {
+		t.Fatal("Path() error = nil, want error")
+	}
+
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := cache.Path(context.Background(), video, "a.mp4", fi); err != nil {
+		t.Fatalf("Path() error = %v", err)
+	}
+}
+
+func TestCache_ForgetsExpiredFailures(t *testing.T) {
+	gen := &fakeGenerator{err: errors.New("broken video")}
+	cache := NewCache(t.TempDir(), gen, 2)
+	now := time.Now()
+	cache.now = func() time.Time { return now }
+	dir := t.TempDir()
+	first, firstInfo := fakeVideo(t, dir, "a.mp4")
+	second, secondInfo := fakeVideo(t, dir, "b.mp4")
+
+	cache.Path(context.Background(), first, "a.mp4", firstInfo)
+	now = now.Add(failureRetryAfter)
+	cache.Path(context.Background(), second, "b.mp4", secondInfo)
+
+	if got := len(cache.failures); got != 1 {
+		t.Errorf("覚えている失敗の数 = %d, want 1", got)
 	}
 }
 
