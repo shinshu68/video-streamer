@@ -351,6 +351,56 @@ func TestFind_DoesNotRescanForMissingIDUntilRetryTime(t *testing.T) {
 	}
 }
 
+func TestFind_RescansSoonAfterIncompleteScan(t *testing.T) {
+	cases := map[string]func(t *testing.T, f fixture, x *Index){
+		"読めないサブフォルダがある": func(t *testing.T, f fixture, x *Index) {
+			x.videos = func() ([]library.Entry, bool, error) {
+				return []library.Entry{}, false, nil
+			}
+		},
+		"識別子を計算できない動画がある": func(t *testing.T, f fixture, x *Index) {
+			f.write(t, "消える.mp4", "a")
+			entries := f.entries(t, "")
+			if err := os.Remove(filepath.Join(f.root, "消える.mp4")); err != nil {
+				t.Fatal(err)
+			}
+			x.videos = func() ([]library.Entry, bool, error) {
+				return entries, true, nil
+			}
+		},
+	}
+	for name, makeIncomplete := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			now := time.Now()
+			x := Open(f.lib, f.index)
+			x.now = func() time.Time { return now }
+			makeIncomplete(t, f, x)
+			if _, err := x.Find([]string{"unknown"}); err != nil {
+				t.Fatal(err)
+			}
+			x.videos = f.lib.Videos
+			f.write(t, "a.mp4", "a")
+
+			now = now.Add(incompleteRetryAfter - time.Second)
+			if _, err := x.Find([]string{"unknown"}); err != nil {
+				t.Fatal(err)
+			}
+			if scanned(x, "a.mp4") {
+				t.Error("不完全な走査の直後に走査し直しました")
+			}
+
+			now = now.Add(time.Second)
+			if _, err := x.Find([]string{"unknown"}); err != nil {
+				t.Fatal(err)
+			}
+			if !scanned(x, "a.mp4") {
+				t.Error("不完全な走査のあと、時間がたっても走査し直しません")
+			}
+		})
+	}
+}
+
 func TestFind_ScansForAnotherMissingID(t *testing.T) {
 	f := newFixture(t)
 	x := Open(f.lib, f.index)
@@ -419,7 +469,7 @@ func TestSearch_DoesNotRepeatScanFinishedWhileWaiting(t *testing.T) {
 	f := newFixture(t)
 	f.write(t, "a.mp4", "a")
 	x := Open(f.lib, f.index)
-	x.missedAt["unknown"] = x.now()
+	x.retryAt["unknown"] = x.now().Add(missingRetryAfter)
 
 	if _, err := x.search([]string{"unknown"}); err != nil {
 		t.Fatal(err)

@@ -33,6 +33,10 @@ const formatVersion = 1
 // missingRetryAfter は走査しても見つからなかった識別子のために、再び走査するまでの時間。
 const missingRetryAfter = 10 * time.Minute
 
+// incompleteRetryAfter は不完全な走査のあとの missingRetryAfter の代わりの時間。
+// 読めないフォルダが残り続けても要求のたびに全体を走査しないよう、覚えないことはしない。
+const incompleteRetryAfter = time.Minute
+
 type record struct {
 	Size     int64  `json:"size"`
 	Modified int64  `json:"modified"`
@@ -46,27 +50,29 @@ type file struct {
 
 // Index は動画の相対パスごとの識別子を、サイズと更新日時とともに覚えておく。
 type Index struct {
-	lib  *library.Library
-	path string
-	now  func() time.Time
+	lib    *library.Library
+	path   string
+	now    func() time.Time
+	videos func() ([]library.Entry, bool, error)
 
 	scanMu     sync.Mutex
 	identifyMu sync.Mutex
 
-	mu       sync.Mutex
-	records  map[string]record
-	loaded   bool
-	missedAt map[string]time.Time
+	mu      sync.Mutex
+	records map[string]record
+	loaded  bool
+	retryAt map[string]time.Time
 }
 
 // Open は path に索引を保存する Index を返す。保存された索引は初めて使うときに読み込む。
 func Open(lib *library.Library, path string) *Index {
 	return &Index{
-		lib:      lib,
-		path:     path,
-		now:      time.Now,
-		records:  map[string]record{},
-		missedAt: map[string]time.Time{},
+		lib:     lib,
+		path:    path,
+		now:     time.Now,
+		videos:  lib.Videos,
+		records: map[string]record{},
+		retryAt: map[string]time.Time{},
 	}
 }
 
@@ -215,6 +221,7 @@ func computeID(r io.ReaderAt, size int64) (string, error) {
 //
 // 索引にない識別子があるときは、公開フォルダ全体を走査し直す。
 // 走査しても見つからなかった識別子は、missingRetryAfter の間は走査し直さない。
+// 走査が不完全だったときは incompleteRetryAfter の間だけにする。
 func (x *Index) Find(ids []string) ([]library.Entry, error) {
 	found := x.lookup(ids)
 	if x.needsScan(ids, found) {
@@ -243,7 +250,7 @@ func (x *Index) needsScan(ids []string, found map[string]library.Entry) bool {
 		if _, ok := found[id]; ok {
 			continue
 		}
-		if at, ok := x.missedAt[id]; !ok || now.Sub(at) >= missingRetryAfter {
+		if at, ok := x.retryAt[id]; !ok || !now.Before(at) {
 			return true
 		}
 	}
@@ -260,22 +267,27 @@ func (x *Index) search(ids []string) (map[string]library.Entry, error) {
 		return found, nil
 	}
 
-	videos, err := x.lib.Videos()
+	videos, complete, err := x.videos()
 	if err != nil {
 		return nil, err
 	}
 	x.Identify(videos)
 	found = x.lookup(ids)
 
+	retryAfter := missingRetryAfter
+	if !complete || slices.ContainsFunc(videos, func(e library.Entry) bool { return e.ID == "" }) {
+		retryAfter = incompleteRetryAfter
+	}
+
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	now := x.now()
-	maps.DeleteFunc(x.missedAt, func(_ string, at time.Time) bool {
-		return now.Sub(at) >= missingRetryAfter
+	maps.DeleteFunc(x.retryAt, func(_ string, at time.Time) bool {
+		return !now.Before(at)
 	})
 	for _, id := range ids {
 		if _, ok := found[id]; !ok {
-			x.missedAt[id] = now
+			x.retryAt[id] = now.Add(retryAfter)
 		}
 	}
 	return found, nil

@@ -351,9 +351,12 @@ func TestNew_AllowsExcludedDirOutsideRoot(t *testing.T) {
 func TestVideos_ReturnsVideosOfAllFolders(t *testing.T) {
 	lib, _, _ := newTestLibrary(t)
 
-	videos, err := lib.Videos()
+	videos, complete, err := lib.Videos()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !complete {
+		t.Error("complete = false, want true")
 	}
 	var paths []string
 	for _, v := range videos {
@@ -372,7 +375,7 @@ func TestVideos_FailsWhenRootIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := lib.Videos(); !errors.Is(err, ErrNotFound) {
+	if _, _, err := lib.Videos(); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
