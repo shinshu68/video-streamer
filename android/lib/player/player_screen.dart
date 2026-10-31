@@ -15,7 +15,11 @@ import 'screen_awake.dart';
 final videoControllerFactoryProvider =
     Provider<VideoPlayerController Function(String path)>((ref) {
       final client = ref.watch(apiClientProvider);
-      return (path) => VideoPlayerController.networkUrl(client.mediaUri(path));
+      // 既定の textureView では、シークのあとにバッファリングのまま止まることがある。
+      return (path) => VideoPlayerController.networkUrl(
+        client.mediaUri(path),
+        viewType: VideoViewType.platformView,
+      );
     });
 
 /// [entries] の動画を、[initialIndex] の動画から配信 URL で再生する画面。
