@@ -100,6 +100,15 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
 
   bool disposed = false;
 
+  bool _playWhenReady = false;
+
+  /// 実機と同じく、バッファリング中は isPlaying を false にする。
+  void startBuffering() =>
+      value = value.copyWith(isPlaying: false, isBuffering: true);
+
+  void endBuffering() =>
+      value = value.copyWith(isPlaying: _playWhenReady, isBuffering: false);
+
   @override
   int get playerId => VideoPlayerController.kUninitializedPlayerId;
 
@@ -109,10 +118,16 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
   }
 
   @override
-  Future<void> play() async => value = value.copyWith(isPlaying: true);
+  Future<void> play() async {
+    _playWhenReady = true;
+    value = value.copyWith(isPlaying: true);
+  }
 
   @override
-  Future<void> pause() async => value = value.copyWith(isPlaying: false);
+  Future<void> pause() async {
+    _playWhenReady = false;
+    value = value.copyWith(isPlaying: false);
+  }
 
   @override
   Future<void> seekTo(Duration position) async =>

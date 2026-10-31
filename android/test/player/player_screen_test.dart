@@ -275,6 +275,127 @@ void main() {
     expect(controllers.map((c) => c.path), ['動画A.mp4']);
   });
 
+  group('バッファリング', () {
+    /// 再生を始めて、バッファリングに入った状態にする。
+    Future<FakeVideoPlayerController> startBuffering(
+      WidgetTester tester, {
+      Size size = portrait,
+      PictureInPicture? pictureInPicture,
+      ScreenAwake? screenAwake,
+    }) async {
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        size,
+        controllers: controllers,
+        pictureInPicture: pictureInPicture,
+        screenAwake: screenAwake,
+      );
+      await tester.pump();
+      controllers.single.startBuffering();
+      await tester.pump();
+      return controllers.single;
+    }
+
+    testWidgets('再生中のバッファリングでは一時停止のボタンのまま、読み込み中の表示を出す', (tester) async {
+      final controller = await startBuffering(tester);
+
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      controller.endBuffering();
+      await tester.pump();
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('バッファリング中に一時停止すると、読み込みが終わっても再開しない', (tester) async {
+      final screen = FakeScreenAwake();
+      final pip = FakePictureInPicture();
+      final controller = await startBuffering(
+        tester,
+        screenAwake: screen,
+        pictureInPicture: pip,
+      );
+
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+      expect(find.byTooltip('再生'), findsOneWidget);
+      expect(screen.keepOn, isFalse);
+      expect(pip.updated.last.isPlaying, isFalse);
+
+      controller.endBuffering();
+      await tester.pump();
+      expect(controller.value.isPlaying, isFalse);
+      expect(find.byTooltip('再生'), findsOneWidget);
+    });
+
+    testWidgets('バッファリング中に一時停止してから再生すると、読み込みのあとに再開する', (tester) async {
+      final controller = await startBuffering(tester);
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('再生'));
+      await tester.pump();
+      controller.startBuffering();
+      await tester.pump();
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+
+      controller.endBuffering();
+      await tester.pump();
+      expect(controller.value.isPlaying, isTrue);
+    });
+
+    testWidgets('一時停止中のバッファリングでは再生のボタンのままにする', (tester) async {
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(tester, portrait, controllers: controllers);
+      await tester.pump();
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+
+      controllers.single.startBuffering();
+      await tester.pump();
+
+      expect(find.byTooltip('再生'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('バッファリング中も消灯させず、小窓には再生中と伝える', (tester) async {
+      final screen = FakeScreenAwake();
+      final pip = FakePictureInPicture();
+      await startBuffering(tester, screenAwake: screen, pictureInPicture: pip);
+
+      expect(screen.keepOn, isTrue);
+      expect(pip.updated.last.isPlaying, isTrue);
+    });
+
+    testWidgets('横向きで操作を出したままバッファリングしても3秒で隠す', (tester) async {
+      await startBuffering(tester, size: landscape);
+
+      await tapScreenCenter(tester);
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.byTooltip('一時停止'), findsNothing);
+    });
+
+    testWidgets('横向きのバッファリングでも読み込み中の表示を出す', (tester) async {
+      await startBuffering(tester, size: landscape);
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('小窓の中では読み込み中の表示を出さない', (tester) async {
+      final pip = FakePictureInPicture();
+      await startBuffering(tester, pictureInPicture: pip);
+
+      pip.changeMode(true);
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+  });
+
   group('画面の消灯', () {
     testWidgets('再生中は消灯させず、一時停止すると元に戻す', (tester) async {
       final screen = FakeScreenAwake();

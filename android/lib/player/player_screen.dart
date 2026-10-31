@@ -165,6 +165,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
 
   VideoPlayerController? _controller;
   Future<void>? _initialized;
+  bool _playRequested = false;
   PictureInPictureState? _sentState;
   late final ScreenAwake _screenAwake;
   bool _keepingScreenOn = false;
@@ -204,6 +205,8 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
       widget.entry.path,
     );
     _controller = controller;
+    _playRequested = false;
+    controller.addListener(_rememberPlayRequest);
     controller.addListener(_updatePictureInPicture);
     controller.addListener(_updateKeepScreenOn);
     _updatePictureInPicture();
@@ -217,8 +220,23 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
     _updateKeepScreenOn();
   }
 
+  /// 再生中か、バッファリングが終われば再生を続ける状態かを返す。
+  ///
+  /// value.isPlaying はバッファリング中に false になるため、それだけでは判断しない。
+  bool get _isPlaying {
+    final value = _controller?.value;
+    return value != null &&
+        (value.isPlaying || (value.isBuffering && _playRequested));
+  }
+
+  void _rememberPlayRequest() {
+    if (_controller!.value.isPlaying) {
+      _playRequested = true;
+    }
+  }
+
   void _updateKeepScreenOn() {
-    final isPlaying = _controller?.value.isPlaying ?? false;
+    final isPlaying = _isPlaying;
     if (isPlaying != _keepingScreenOn) {
       _keepingScreenOn = isPlaying;
       _screenAwake.setKeepOn(isPlaying);
@@ -230,14 +248,23 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
     if (controller == null || !controller.value.isInitialized) {
       return;
     }
-    controller.value.isPlaying ? controller.pause() : controller.play();
+    if (_isPlaying) {
+      _playRequested = false;
+      controller.pause();
+    } else {
+      controller.play();
+    }
+    // バッファリング中の一時停止では value が変わらず、リスナーが呼ばれない。
+    setState(() {});
+    _updatePictureInPicture();
+    _updateKeepScreenOn();
   }
 
   PictureInPictureState _pictureInPictureState() {
     final value = _controller!.value;
     return (
       size: value.size,
-      isPlaying: value.isPlaying,
+      isPlaying: _isPlaying,
       hasPrevious: widget.hasPrevious,
       hasNext: widget.hasNext,
     );
@@ -299,6 +326,14 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
             if (widget.pictureInPicture) {
               return video;
             }
+            final videoWithLoading = Stack(
+              fit: StackFit.expand,
+              children: [
+                video,
+                if (value.isBuffering)
+                  const Center(child: CircularProgressIndicator()),
+              ],
+            );
             final favoriteButton = FavoriteButton(entry: widget.entry);
             final pictureInPictureButton = _PictureInPictureButton(
               onPressed: _enterPictureInPicture,
@@ -310,6 +345,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
             );
             final controls = _Controls(
               value: value,
+              isPlaying: _isPlaying,
               onPlayPause: _togglePlayPause,
               onBack: () => _seekBy(-_skip),
               onForward: () => _seekBy(_skip),
@@ -317,8 +353,8 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
             if (widget.fullscreen) {
               return _FullscreenLayout(
                 title: widget.entry.name,
-                isPlaying: value.isPlaying,
-                video: video,
+                isPlaying: _isPlaying,
+                video: videoWithLoading,
                 actions: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [favoriteButton, pictureInPictureButton],
@@ -333,7 +369,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      video,
+                      videoWithLoading,
                       Positioned(
                         right: 8,
                         bottom: 8,
@@ -501,12 +537,14 @@ class _PictureInPictureButton extends ConsumerWidget {
 class _Controls extends StatelessWidget {
   const _Controls({
     required this.value,
+    required this.isPlaying,
     required this.onPlayPause,
     required this.onBack,
     required this.onForward,
   });
 
   final VideoPlayerValue value;
+  final bool isPlaying;
   final VoidCallback onPlayPause;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -531,8 +569,8 @@ class _Controls extends StatelessWidget {
               onPressed: onBack,
             ),
             IconButton(
-              icon: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
-              tooltip: value.isPlaying ? '一時停止' : '再生',
+              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+              tooltip: isPlaying ? '一時停止' : '再生',
               iconSize: 40,
               onPressed: onPlayPause,
             ),
