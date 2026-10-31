@@ -75,19 +75,13 @@ func (c *Cache) Path(ctx context.Context, video, rel string, fi fs.FileInfo) (st
 		return path, nil
 	}
 
-	c.mu.Lock()
-	if f, ok := c.failures[key]; ok && c.now().Sub(f.at) < failureRetryAfter {
-		c.mu.Unlock()
-		return "", f.err
+	cl, err := c.join(ctx, video, path, key)
+	if err != nil {
+		return "", err
 	}
-	cl, ok := c.inflight[key]
-	if !ok {
-		cl = &call{done: make(chan struct{})}
-		c.inflight[key] = cl
-		// 要求したクライアントが切断しても、同じ動画を待つ他の要求のために生成は続ける。
-		go c.generate(context.WithoutCancel(ctx), video, path, key, cl)
+	if cl == nil {
+		return path, nil
 	}
-	c.mu.Unlock()
 
 	select {
 	case <-cl.done:
@@ -98,6 +92,28 @@ func (c *Cache) Path(ctx context.Context, video, rel string, fi fs.FileInfo) (st
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+}
+
+// join は key の動画の生成に加わり、その call を返す。生成中でなければ生成を始める。
+// 最近失敗した動画はそのエラーを返し、すでに生成済みなら nil を返す。
+func (c *Cache) join(ctx context.Context, video, path, key string) (*call, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if f, ok := c.failures[key]; ok && c.now().Sub(f.at) < failureRetryAfter {
+		return nil, f.err
+	}
+	if cl, ok := c.inflight[key]; ok {
+		return cl, nil
+	}
+	// ロックを取るまでに別の生成が終わっていると、配信中のファイルを置き換えようとして失敗する。
+	if _, err := os.Stat(path); err == nil {
+		return nil, nil
+	}
+	cl := &call{done: make(chan struct{})}
+	c.inflight[key] = cl
+	// 要求したクライアントが切断しても、同じ動画を待つ他の要求のために生成は続ける。
+	go c.generate(context.WithoutCancel(ctx), video, path, key, cl)
+	return cl, nil
 }
 
 func (c *Cache) generate(ctx context.Context, video, path, key string, cl *call) {

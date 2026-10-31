@@ -120,6 +120,28 @@ func TestCache_SharesGenerationAmongConcurrentRequests(t *testing.T) {
 	}
 }
 
+func TestCache_DoesNotRegenerateFileFinishedBeforeJoining(t *testing.T) {
+	gen := &fakeGenerator{}
+	dir := t.TempDir()
+	cache := NewCache(dir, gen, 2)
+	video, fi := fakeVideo(t, t.TempDir(), "a.mp4")
+	key := cacheKey("a.mp4", fi)
+	path := filepath.Join(dir, key+".jpg")
+	if err := os.WriteFile(path, []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cl, err := cache.join(context.Background(), video, path, key)
+	if err != nil {
+		t.Fatalf("join() error = %v", err)
+	}
+
+	if cl != nil {
+		<-cl.done
+		t.Errorf("生成済みのファイルを作り直しました (Generate %d 回)", gen.calls.Load())
+	}
+}
+
 func TestCache_LimitsConcurrentGeneration(t *testing.T) {
 	gen := &fakeGenerator{delay: 50 * time.Millisecond}
 	cache := NewCache(t.TempDir(), gen, 2)
