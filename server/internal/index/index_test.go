@@ -121,6 +121,87 @@ func TestIdentify_UsesSavedIDUntilSizeOrModifiedChanges(t *testing.T) {
 	}
 }
 
+// entries はフォルダの一覧を識別子なしで返す。
+func (f fixture) entries(t *testing.T, dir string) []library.Entry {
+	t.Helper()
+	_, entries, err := f.lib.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
+}
+
+func TestIdentifyWithin_SetsIDsComputedInTime(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+
+	entries := f.entries(t, "")
+	x.IdentifyWithin(entries, time.Hour)
+
+	if entries[0].ID == "" {
+		t.Error("間に合った動画に識別子がありません")
+	}
+}
+
+func TestIdentifyWithin_ReturnsAtDeadlineAndFinishesInBackground(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	x.identifyMu.Lock()
+
+	entries := f.entries(t, "")
+	x.IdentifyWithin(entries, time.Millisecond)
+	if entries[0].ID != "" {
+		t.Errorf("計算が終わる前に識別子があります: %q", entries[0].ID)
+	}
+
+	x.identifyMu.Unlock()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(f.index); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := f.savedPaths(t); !slices.Equal(got, []string{"a.mp4"}) {
+		t.Errorf("応答のあとに計算した動画が保存されていません: %q", got)
+	}
+}
+
+func TestIdentifyWithin_DoesNotWaitForKnownVideos(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	want := f.list(t, x, "")[0].ID
+	x.identifyMu.Lock()
+	defer x.identifyMu.Unlock()
+
+	entries := f.entries(t, "")
+	x.IdentifyWithin(entries, time.Hour)
+
+	if entries[0].ID != want {
+		t.Errorf("ID = %q, want %q", entries[0].ID, want)
+	}
+}
+
+func TestSetKnownIDs_SkipsChangedVideo(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	f.list(t, x, "")
+	f.write(t, "a.mp4", "changed")
+
+	entries := f.entries(t, "")
+
+	if x.setKnownIDs(entries) {
+		t.Error("変わった動画まで設定できたと返しました")
+	}
+	if entries[0].ID != "" {
+		t.Errorf("変わる前の識別子を返しました: %q", entries[0].ID)
+	}
+}
+
 func TestComputeID_UsesSizeHeadAndTailOnly(t *testing.T) {
 	const size = 3 * hashedBytes
 	id := func(mutate func(b []byte)) string {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/shinshu68/video-streamer/server/internal/index"
 	"github.com/shinshu68/video-streamer/server/internal/library"
@@ -47,6 +48,10 @@ type videosResponse struct {
 // maxVideosBody は POST /api/videos の本文の上限。識別子で約1万件分。
 const maxVideosBody = 1 << 20
 
+// listIDWait は一覧の応答で識別子の計算を待つ時間。
+// アプリのタイムアウト (30 秒) に、HDD のスリープからの復帰の時間を見込んで短くする。
+const listIDWait = 15 * time.Second
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
@@ -58,7 +63,7 @@ func handleList(w http.ResponseWriter, r *http.Request, lib *library.Library, id
 		writeJSON(w, status, errorResponse{Error: http.StatusText(status)})
 		return
 	}
-	ids.Identify(entries)
+	ids.IdentifyWithin(entries, listIDWait)
 	writeJSON(w, http.StatusOK, listResponse{Path: clean, Entries: entries})
 }
 
