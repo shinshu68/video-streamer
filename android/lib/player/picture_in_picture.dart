@@ -16,7 +16,9 @@ enum PictureInPictureAction { previous, playPause, next }
 
 /// ピクチャーインピクチャーの小窓を扱う。
 abstract interface class PictureInPicture {
-  /// 小窓に入ったか、小窓から戻ったかを通知する。
+  /// 小窓に入り始めたか、小窓から戻ったかを通知する。
+  ///
+  /// Android 15 より前の端末では、小窓に入りきったときに通知する。
   Stream<bool> get modeChanges;
 
   /// 小窓のボタンの操作を通知する。
