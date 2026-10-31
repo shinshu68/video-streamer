@@ -20,7 +20,16 @@ import (
 
 func main() {
 	configPath := flag.String("config", defaultConfigPath(), "設定ファイルのパス")
+	logPath := flag.String("log", "", "ログを追記するファイルのパス。省略すると標準エラーに出す")
 	flag.Parse()
+
+	if *logPath != "" {
+		logFile, err := os.OpenFile(*logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.SetOutput(logFile)
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
