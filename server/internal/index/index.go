@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/shinshu68/video-streamer/server/internal/library"
 )
@@ -28,6 +29,9 @@ const hashedBytes = 1 << 20
 // formatVersion は索引のファイルの形と識別子の作り方の版。変えたら上げる。
 // 版が違う索引は読まずに作り直す。
 const formatVersion = 1
+
+// missingRetryAfter は走査しても見つからなかった識別子のために、再び走査するまでの時間。
+const missingRetryAfter = 10 * time.Minute
 
 type record struct {
 	Size     int64  `json:"size"`
@@ -44,17 +48,25 @@ type file struct {
 type Index struct {
 	lib  *library.Library
 	path string
+	now  func() time.Time
 
 	scanMu sync.Mutex
 
-	mu      sync.Mutex
-	records map[string]record
-	loaded  bool
+	mu       sync.Mutex
+	records  map[string]record
+	loaded   bool
+	missedAt map[string]time.Time
 }
 
 // Open は path に索引を保存する Index を返す。保存された索引は初めて使うときに読み込む。
 func Open(lib *library.Library, path string) *Index {
-	return &Index{lib: lib, path: path, records: map[string]record{}}
+	return &Index{
+		lib:      lib,
+		path:     path,
+		now:      time.Now,
+		records:  map[string]record{},
+		missedAt: map[string]time.Time{},
+	}
 }
 
 // load は保存された索引をまだ読めていなければ読み込み、メモリの内容とまとめる。
@@ -157,15 +169,14 @@ func computeID(r io.ReaderAt, size int64) (string, error) {
 // Find は ids の順に、今も存在する動画を返す。見つからない識別子は結果に含めない。
 //
 // 索引にない識別子があるときは、公開フォルダ全体を走査し直す。
+// 走査しても見つからなかった識別子は、missingRetryAfter の間は走査し直さない。
 func (x *Index) Find(ids []string) ([]library.Entry, error) {
 	found := x.lookup(ids)
-	for _, id := range ids {
-		if _, ok := found[id]; !ok {
-			if err := x.scan(); err != nil {
-				return nil, fmt.Errorf("公開フォルダを走査できません: %w", err)
-			}
-			found = x.lookup(ids)
-			break
+	if x.needsScan(ids, found) {
+		var err error
+		found, err = x.search(ids)
+		if err != nil {
+			return nil, fmt.Errorf("公開フォルダを走査できません: %w", err)
 		}
 	}
 
@@ -178,15 +189,51 @@ func (x *Index) Find(ids []string) ([]library.Entry, error) {
 	return videos, nil
 }
 
-func (x *Index) scan() error {
+// needsScan は ids のうち、found になく、最近の走査でも見つからなかったわけではないものがあるかを返す。
+func (x *Index) needsScan(ids []string, found map[string]library.Entry) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	now := x.now()
+	for _, id := range ids {
+		if _, ok := found[id]; ok {
+			continue
+		}
+		if at, ok := x.missedAt[id]; !ok || now.Sub(at) >= missingRetryAfter {
+			return true
+		}
+	}
+	return false
+}
+
+// search は公開フォルダ全体を走査して ids の動画を探し、見つからなかった識別子を覚える。
+func (x *Index) search(ids []string) (map[string]library.Entry, error) {
 	x.scanMu.Lock()
 	defer x.scanMu.Unlock()
+	// 待っている間に別の要求の走査が終わっていれば、同じ走査を繰り返さない。
+	found := x.lookup(ids)
+	if !x.needsScan(ids, found) {
+		return found, nil
+	}
+
 	videos, err := x.lib.Videos()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	x.Identify(videos)
-	return nil
+	found = x.lookup(ids)
+
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	now := x.now()
+	maps.DeleteFunc(x.missedAt, func(_ string, at time.Time) bool {
+		return now.Sub(at) >= missingRetryAfter
+	})
+	for _, id := range ids {
+		if _, ok := found[id]; !ok {
+			x.missedAt[id] = now
+		}
+	}
+	return found, nil
 }
 
 // lookup は索引から ids の動画を探す。索引の内容が今のファイルと合わないものは除く。

@@ -237,6 +237,118 @@ func TestFind_UsesIndexSavedBeforeOpenWithoutScanning(t *testing.T) {
 	}
 }
 
+// scanned は x が動画 rel を走査で見つけて索引に入れたかを返す。
+func scanned(x *Index, rel string) bool {
+	_, ok := x.records[rel]
+	return ok
+}
+
+func TestFind_DoesNotRescanForMissingIDUntilRetryTime(t *testing.T) {
+	f := newFixture(t)
+	now := time.Now()
+	x := Open(f.lib, f.index)
+	x.now = func() time.Time { return now }
+	if _, err := x.Find([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "a.mp4", "a")
+
+	now = now.Add(missingRetryAfter - time.Second)
+	if _, err := x.Find([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	if scanned(x, "a.mp4") {
+		t.Error("見つからなかった識別子のために走査し直しました")
+	}
+
+	now = now.Add(time.Second)
+	if _, err := x.Find([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	if !scanned(x, "a.mp4") {
+		t.Error("時間がたっても走査し直しません")
+	}
+}
+
+func TestFind_ScansForAnotherMissingID(t *testing.T) {
+	f := newFixture(t)
+	x := Open(f.lib, f.index)
+	if _, err := x.Find([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "a.mp4", "a")
+
+	if _, err := x.Find([]string{"unknown", "another"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !scanned(x, "a.mp4") {
+		t.Error("初めて要求された識別子で走査しません")
+	}
+}
+
+func TestFind_ReturnsMissingVideoOnceListed(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	id := f.list(t, x, "")[0].ID
+	f.move(t, "a.mp4", "移動先/a.mp4")
+	if err := os.Remove(filepath.Join(f.root, "移動先", "a.mp4")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.Find([]string{id}); err != nil {
+		t.Fatal(err)
+	}
+
+	f.write(t, "移動先/a.mp4", "a")
+	f.list(t, x, "移動先")
+
+	videos, err := x.Find([]string{id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 1 || videos[0].Path != "移動先/a.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+}
+
+func TestFind_RetriesScanAfterRootCouldNotBeRead(t *testing.T) {
+	f := newFixture(t)
+	root := filepath.Join(f.root, "未接続")
+	lib, err := library.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := Open(lib, f.index)
+	if _, err := x.Find([]string{"unknown"}); err == nil {
+		t.Fatal("err = nil")
+	}
+
+	f.write(t, "未接続/a.mp4", "a")
+
+	if _, err := x.Find([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+	if !scanned(x, "a.mp4") {
+		t.Error("公開フォルダを読めるようになっても走査しません")
+	}
+}
+
+func TestSearch_DoesNotRepeatScanFinishedWhileWaiting(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	x.missedAt["unknown"] = x.now()
+
+	if _, err := x.search([]string{"unknown"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if scanned(x, "a.mp4") {
+		t.Error("待っている間に終わった走査のあとで、また走査しました")
+	}
+}
+
 func TestFind_ReturnsVideosInRequestedOrder(t *testing.T) {
 	f := newFixture(t)
 	f.write(t, "a.mp4", "a")
