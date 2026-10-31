@@ -419,6 +419,93 @@ void main() {
     });
   });
 
+  group('動画の末尾', () {
+    /// 再生を始めて、動画の末尾で止まった状態にする。
+    Future<FakeVideoPlayerController> playToEnd(
+      WidgetTester tester, {
+      PictureInPicture? pictureInPicture,
+      ScreenAwake? screenAwake,
+    }) async {
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        portrait,
+        controllers: controllers,
+        pictureInPicture: pictureInPicture,
+        screenAwake: screenAwake,
+      );
+      await tester.pump();
+      await controllers.single.complete();
+      await tester.pump();
+      return controllers.single;
+    }
+
+    testWidgets('末尾で止まったあとのシークでは、読み込みの間も再生中と扱わない', (tester) async {
+      final screen = FakeScreenAwake();
+      final pip = FakePictureInPicture();
+      final controller = await playToEnd(
+        tester,
+        screenAwake: screen,
+        pictureInPicture: pip,
+      );
+
+      await tester.tap(find.byTooltip('10秒戻る'));
+      await tester.pump();
+      controller.startBuffering();
+      await tester.pump();
+
+      expect(find.byTooltip('再生'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(screen.keepOn, isFalse);
+      expect(pip.updated.last.isPlaying, isFalse);
+    });
+
+    testWidgets('再生中に末尾へシークして止まったあとも、再生中と扱わない', (tester) async {
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(tester, portrait, controllers: controllers);
+      await tester.pump();
+      final controller = controllers.single;
+
+      await controller.seekTo(controller.value.duration);
+      await tester.pump();
+      await controller.complete();
+      await tester.pump();
+      await tester.tap(find.byTooltip('10秒戻る'));
+      await tester.pump();
+      controller.startBuffering();
+      await tester.pump();
+
+      expect(find.byTooltip('再生'), findsOneWidget);
+    });
+
+    testWidgets('末尾で止まったあとに再生すると、読み込みの間も再生中と扱う', (tester) async {
+      final controller = await playToEnd(tester);
+
+      await tester.tap(find.byTooltip('再生'));
+      await tester.pump();
+      controller.startBuffering();
+      await tester.pump();
+
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+    });
+
+    testWidgets('isPlaying の false がバッファリングの通知より先に届いても再生中のまま扱う', (
+      tester,
+    ) async {
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(tester, portrait, controllers: controllers);
+      await tester.pump();
+      final controller = controllers.single;
+
+      controller.value = controller.value.copyWith(isPlaying: false);
+      await tester.pump();
+      controller.value = controller.value.copyWith(isBuffering: true);
+      await tester.pump();
+
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+    });
+  });
+
   group('画面の消灯', () {
     testWidgets('再生中は消灯させず、一時停止すると元に戻す', (tester) async {
       final screen = FakeScreenAwake();

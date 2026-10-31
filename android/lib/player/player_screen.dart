@@ -15,7 +15,11 @@ import 'screen_awake.dart';
 final videoControllerFactoryProvider =
     Provider<VideoPlayerController Function(String path)>((ref) {
       final client = ref.watch(apiClientProvider);
-      return (path) => VideoPlayerController.networkUrl(client.mediaUri(path));
+      // 既定の textureView では、シークのあとにバッファリングのまま止まることがある。
+      return (path) => VideoPlayerController.networkUrl(
+        client.mediaUri(path),
+        viewType: VideoViewType.platformView,
+      );
     });
 
 /// [entries] の動画を、[initialIndex] の動画から配信 URL で再生する画面。
@@ -233,8 +237,14 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
         (value.isPlaying || (value.isBuffering && _playRequested));
   }
 
+  // isPlaying が false になっただけでは消さない。バッファリングの開始より先に届くことがあり、
+  // シークバーの操作やバックグラウンドへの移動による内部の pause() は再生に戻る前提のため。
+  // 末尾へのシークでは isCompleted が true でも isPlaying が true のままの間がある。
   void _rememberPlayRequest() {
-    if (_controller!.value.isPlaying) {
+    final value = _controller!.value;
+    if (value.isCompleted) {
+      _playRequested = false;
+    } else if (value.isPlaying) {
       _playRequested = true;
     }
   }

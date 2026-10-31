@@ -112,6 +112,12 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
   void endBuffering() =>
       value = value.copyWith(isPlaying: _playWhenReady, isBuffering: false);
 
+  /// 実際のコントローラーと同じく、末尾に達すると内部で pause() して末尾へシークする。
+  Future<void> complete() async {
+    await pause();
+    await seekTo(value.duration);
+  }
+
   @override
   int get playerId => VideoPlayerController.kUninitializedPlayerId;
 
@@ -122,6 +128,9 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
 
   @override
   Future<void> play() async {
+    if (value.position == value.duration) {
+      await seekTo(Duration.zero);
+    }
     _playWhenReady = true;
     value = value.copyWith(isPlaying: true);
   }
@@ -133,8 +142,10 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
   }
 
   @override
-  Future<void> seekTo(Duration position) async =>
-      value = value.copyWith(position: position);
+  Future<void> seekTo(Duration position) async => value = value.copyWith(
+    position: position,
+    isCompleted: position == value.duration,
+  );
 
   @override
   Future<void> dispose() async {
