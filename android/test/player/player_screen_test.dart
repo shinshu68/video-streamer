@@ -275,6 +275,29 @@ void main() {
     expect(controllers.map((c) => c.path), ['動画A.mp4']);
   });
 
+  testWidgets('次の動画に切り替えたあとに前の動画から通知が届いても例外にしない', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(tester, portrait, controllers: controllers);
+    await tester.pump();
+    controllers.single.notifiesWhileDisposing = true;
+
+    await swipe(tester, -300);
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('再生画面を離れたあとに通知が届いても例外にしない', (tester) async {
+    final controllers = <FakeVideoPlayerController>[];
+    await pumpPlayer(tester, portrait, controllers: controllers);
+    await tester.pump();
+    controllers.single.notifiesWhileDisposing = true;
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
   group('バッファリング', () {
     /// 再生を始めて、バッファリングに入った状態にする。
     Future<FakeVideoPlayerController> startBuffering(

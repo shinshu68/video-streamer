@@ -214,7 +214,11 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
   }
 
   void _stop() {
-    _controller?.dispose();
+    _controller
+      ?..removeListener(_rememberPlayRequest)
+      ..removeListener(_updatePictureInPicture)
+      ..removeListener(_updateKeepScreenOn)
+      ..dispose();
     _controller = null;
     _initialized = null;
     _updateKeepScreenOn();
