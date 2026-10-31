@@ -100,8 +100,8 @@ func (l *Library) Resolve(rel string) (abs string, clean string, err error) {
 	abs = l.root
 	for _, elem := range elems {
 		abs = filepath.Join(abs, elem)
-		// シンボリックリンクを1段ずつ Lstat で弾く。最後に EvalSymlinks で root 配下かを
-		// 比べる方法は、Windows のジャンクションやドライブ文字の表記ゆれで判定を誤りやすいため使わない。
+		// 最後に EvalSymlinks で root 配下かを比べる方法は、
+		// Windows のジャンクションやドライブ文字の表記ゆれで判定を誤りやすいため使わない。
 		fi, err := os.Lstat(abs)
 		if err != nil {
 			return "", "", ErrNotFound
@@ -113,6 +113,10 @@ func (l *Library) Resolve(rel string) (abs string, clean string, err error) {
 	return abs, strings.Join(elems, "/"), nil
 }
 
+// driveStreamOrNULChars はドライブ文字 (C:) や NTFS の代替データストリーム (a.mp4:stream) を
+// 表す区切りと NUL で、パスの要素に含められない文字。
+const driveStreamOrNULChars = ":\x00"
+
 func splitPath(rel string) ([]string, error) {
 	var elems []string
 	for _, elem := range strings.Split(strings.ReplaceAll(rel, `\`, "/"), "/") {
@@ -121,8 +125,7 @@ func splitPath(rel string) ([]string, error) {
 			continue
 		case elem == "..":
 			return nil, ErrForbidden
-		// ドライブ文字 (C:) や NTFS の代替データストリーム (a.mp4:stream) を防ぐ。
-		case strings.ContainsAny(elem, ":\x00"):
+		case strings.ContainsAny(elem, driveStreamOrNULChars):
 			return nil, ErrForbidden
 		case strings.HasPrefix(elem, "."):
 			return nil, ErrNotFound

@@ -24,7 +24,6 @@ class FavoriteButton extends ConsumerWidget {
       icon: Icon(
         isFavorite ? Icons.favorite : Icons.favorite_border,
         color: isFavorite ? Colors.red : Colors.white,
-        // 明るい動画に重ねても見えるようにする。
         shadows: const [Shadow(blurRadius: 4)],
       ),
       tooltip: isFavorite ? 'お気に入りから外す' : 'お気に入りに追加',
