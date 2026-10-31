@@ -297,6 +297,27 @@ void main() {
       ]);
     });
 
+    testWidgets('縦向きではボタンをハートの下に並べる', (tester) async {
+      await pumpPlayer(tester, portrait);
+      await tester.pump();
+
+      expect(
+        tester.getCenter(find.byTooltip(button)).dy,
+        greaterThan(tester.getCenter(find.byTooltip('お気に入りに追加')).dy),
+      );
+    });
+
+    testWidgets('横向きではボタンをハートの右に並べる', (tester) async {
+      await pumpPlayer(tester, landscape);
+      await tapScreenCenter(tester);
+      await tester.pump();
+
+      final pictureInPicture = tester.getCenter(find.byTooltip(button));
+      final favorite = tester.getCenter(find.byTooltip('お気に入りに追加'));
+      expect(pictureInPicture.dx, greaterThan(favorite.dx));
+      expect(pictureInPicture.dy, favorite.dy);
+    });
+
     testWidgets('横向きでは操作を出したときだけボタンを出す', (tester) async {
       await pumpPlayer(tester, landscape);
       await tester.pump();

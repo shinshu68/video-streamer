@@ -284,12 +284,9 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
             if (widget.pictureInPicture) {
               return video;
             }
-            final actions = Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _PictureInPictureButton(onPressed: _enterPictureInPicture),
-                FavoriteButton(entry: widget.entry),
-              ],
+            final favoriteButton = FavoriteButton(entry: widget.entry);
+            final pictureInPictureButton = _PictureInPictureButton(
+              onPressed: _enterPictureInPicture,
             );
             final progress = VideoProgressIndicator(
               controller,
@@ -307,7 +304,10 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                 title: widget.entry.name,
                 isPlaying: value.isPlaying,
                 video: video,
-                actions: actions,
+                actions: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [favoriteButton, pictureInPictureButton],
+                ),
                 progress: progress,
                 controls: controls,
               );
@@ -319,7 +319,13 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                     fit: StackFit.expand,
                     children: [
                       video,
-                      Positioned(right: 8, bottom: 8, child: actions),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: Column(
+                          children: [favoriteButton, pictureInPictureButton],
+                        ),
+                      ),
                     ],
                   ),
                 ),
