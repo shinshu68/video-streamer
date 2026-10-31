@@ -2,8 +2,10 @@ package index
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -156,6 +158,82 @@ func TestOpen_RebuildsWhenFileIsBroken(t *testing.T) {
 
 	if got := f.list(t, Open(f.lib, f.index), "")[0].ID; got == "" {
 		t.Error("壊れた索引のあとで識別子を計算できません")
+	}
+}
+
+// savedPaths は保存された索引にある動画のパスを返す。
+func (f fixture) savedPaths(t *testing.T) []string {
+	t.Helper()
+	x := Open(f.lib, f.index)
+	x.load()
+	if !x.loaded {
+		t.Fatal("保存された索引を読めません")
+	}
+	return slices.Sorted(maps.Keys(x.records))
+}
+
+func TestIdentify_KeepsSavedIndexWhenCacheDriveConnectsAfterOpen(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	f.write(t, "フォルダA/b.mp4", "b")
+	f.list(t, Open(f.lib, f.index), "")
+
+	// ドライブの未接続は、キャッシュのフォルダへの経路を通らなくして再現する。
+	cache := filepath.Dir(f.index)
+	hidden := cache + ".hidden"
+	if err := os.Rename(cache, hidden); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	x := Open(f.lib, f.index)
+	f.list(t, x, "フォルダA")
+
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(hidden, cache); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "フォルダA/c.mp4", "c")
+	f.list(t, x, "フォルダA")
+
+	want := []string{"a.mp4", "フォルダA/b.mp4", "フォルダA/c.mp4"}
+	if got := f.savedPaths(t); !slices.Equal(got, want) {
+		t.Errorf("保存された動画 = %q, want %q", got, want)
+	}
+}
+
+func TestIdentify_ReturnsIDWhileIndexCannotBeRead(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	if err := os.MkdirAll(f.index, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := f.list(t, Open(f.lib, f.index), "")[0].ID; got == "" {
+		t.Error("索引を読めない間に識別子を計算できません")
+	}
+}
+
+func TestFind_UsesIndexSavedBeforeOpenWithoutScanning(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	id := f.list(t, Open(f.lib, f.index), "")[0].ID
+	f.write(t, "b.mp4", "b")
+
+	x := Open(f.lib, f.index)
+	videos, err := x.Find([]string{id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 1 || videos[0].Name != "a.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+	if _, ok := x.records["b.mp4"]; ok {
+		t.Error("保存された索引で見つかる動画のために走査しました")
 	}
 }
 

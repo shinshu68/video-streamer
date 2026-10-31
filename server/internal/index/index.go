@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,32 +49,52 @@ type Index struct {
 
 	mu      sync.Mutex
 	records map[string]record
+	loaded  bool
 }
 
-// Open は path に保存された索引を読み込む。読めないときは空の索引から始める。
+// Open は path に索引を保存する Index を返す。保存された索引は初めて使うときに読み込む。
 func Open(lib *library.Library, path string) *Index {
-	x := &Index{lib: lib, path: path, records: map[string]record{}}
-	data, err := os.ReadFile(path)
+	return &Index{lib: lib, path: path, records: map[string]record{}}
+}
+
+// load は保存された索引をまだ読めていなければ読み込み、メモリの内容とまとめる。
+// 読めるまでは次の呼び出しで読み直す。x.mu を持って呼ぶ。
+func (x *Index) load() {
+	if x.loaded {
+		return
+	}
+	data, err := os.ReadFile(x.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return x
+		// ドライブが未接続でも ErrNotExist になるため、それだけでは索引がまだないと判断できない。
+		if err := os.MkdirAll(filepath.Dir(x.path), 0o755); err != nil {
+			log.Printf("索引のフォルダを使えないため、読めるまで保存しません: %v", err)
+			return
+		}
+		x.loaded = true
+		return
 	}
 	if err != nil {
-		log.Printf("索引を読めないため作り直します: %v", err)
-		return x
+		log.Printf("索引を読めないため、読めるまで保存しません: %v", err)
+		return
 	}
+	x.loaded = true
 	var f file
 	if err := json.Unmarshal(data, &f); err != nil {
 		log.Printf("索引の形式が不正なため作り直します: %v", err)
-		return x
+		return
 	}
 	if f.Version == formatVersion && f.Videos != nil {
+		maps.Copy(f.Videos, x.records)
 		x.records = f.Videos
 	}
-	return x
 }
 
 // Identify は entries の動画に識別子を設定する。読めない動画の識別子は空のままにする。
 func (x *Index) Identify(entries []library.Entry) {
+	x.mu.Lock()
+	x.load()
+	x.mu.Unlock()
+
 	changed := false
 	for i := range entries {
 		e := &entries[i]
@@ -171,6 +192,7 @@ func (x *Index) scan() error {
 // lookup は索引から ids の動画を探す。索引の内容が今のファイルと合わないものは除く。
 func (x *Index) lookup(ids []string) map[string]library.Entry {
 	x.mu.Lock()
+	x.load()
 	records := map[string]record{}
 	for path, rec := range x.records {
 		if slices.Contains(ids, rec.ID) {
@@ -205,6 +227,10 @@ func (x *Index) lookup(ids []string) map[string]library.Entry {
 func (x *Index) save() {
 	x.mu.Lock()
 	defer x.mu.Unlock()
+	x.load()
+	if !x.loaded {
+		return
+	}
 	if err := x.writeFile(); err != nil {
 		log.Printf("索引を保存できません: %v", err)
 	}
