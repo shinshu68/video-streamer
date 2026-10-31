@@ -5,8 +5,26 @@
 ## 配置
 
 1. Windows 上で exe をビルドする (コマンドは server/CLAUDE.md を参照)
-2. exe と設定ファイル (`config.json`) を Windows 側の任意のフォルダに置く (置き場所は未定)
+2. 開発用の `server\bin` と分けて、exe と設定ファイル (`config.json`) を `%LOCALAPPDATA%\video-streamer\` に置く。動作中の exe はビルドで上書きできないため
 3. 設定ファイルに公開フォルダのパス、ポート番号、キャッシュの置き場所を書く
+
+server/ で次を実行する。`<設定ファイル>` には、本番用の設定を書いたファイルを指定する。
+
+```powershell
+$dir = "$env:LOCALAPPDATA\video-streamer"
+```
+
+```powershell
+New-Item -ItemType Directory -Force $dir
+```
+
+```powershell
+go build -o "$dir\video-streamer-server.exe" .
+```
+
+```powershell
+Copy-Item <設定ファイル> "$dir\config.json"
+```
 
 ## 設定ファイル
 
@@ -29,17 +47,61 @@ JSON 形式。既定では exe と同じフォルダの `config.json` を読む�
 
 `root`・`port`・`cache` は必須で、欠けている場合は起動時にエラーで終了する。外付けHDDのドライブ文字が変わった場合は、`root` と `cache` を書き換えて対応する。
 
-## 常駐方法 (未定)
+## ログ
 
-候補は次のとおり。
+`-log <パス>` を指定すると、ログをそのファイルに追記する。省略すると標準エラーに出す。常駐中はコンソールがないため、`%LOCALAPPDATA%\video-streamer\server.log` に書く。
 
-- スタートアップフォルダに置く: 手軽だが、ログオンするまで起動しない
-- タスクスケジューラで起動時に実行する: ログオン前から動かせる
-- Windows サービスとして登録する: 安定して常駐できるが、登録に管理者権限が必要
+## 常駐方法
+
+タスクスケジューラで PC の起動時に実行する。ログオン前から動き、コンソールの画面も出ない。Windows サービスは外部パッケージの追加が必要なため採用しない。
+
+登録する前に、設定ファイルの `ffmpeg` に ffmpeg.exe のフルパスを書く。ログオンせずに動くため、ユーザーの PATH に頼らない。
+
+管理者の PowerShell で次を実行する。タスクは今のユーザーで、パスワードを保存せずに動く。
+
+```powershell
+$dir = "$env:LOCALAPPDATA\video-streamer"
+```
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "$dir\video-streamer-server.exe" -Argument "-log `"$dir\server.log`"" -WorkingDirectory $dir
+```
+
+```powershell
+$trigger = New-ScheduledTaskTrigger -AtStartup
+```
+
+```powershell
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+```
+
+```powershell
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+```
+
+```powershell
+Register-ScheduledTask -TaskName video-streamer-server -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+```
+
+すぐに動かすときや、止めるときは次を実行する。
+
+```powershell
+Start-ScheduledTask -TaskName video-streamer-server
+```
+
+```powershell
+Stop-ScheduledTask -TaskName video-streamer-server
+```
+
+サーバーを更新するときは、タスクを止めて「配置」の `go build` をやり直し、タスクを起動する。
 
 ## ファイアウォール
 
-Windows ファイアウォールで、サーバーのポートへの受信をプライベートネットワークに限って許可する。規則の追加には管理者権限が必要。具体的な手順はポート番号が決まったら記載する。
+Windows ファイアウォールで、サーバーのポートへの受信をプライベートネットワークに限って許可する。規則は exe のパスごとにあるため、`server\bin` の exe の規則とは別に作る。管理者の PowerShell で次を実行する。`-LocalPort` は設定ファイルの `port` に合わせる。
+
+```powershell
+New-NetFirewallRule -DisplayName video-streamer-server -Direction Inbound -Action Allow -Profile Private -Protocol TCP -LocalPort 8765 -Program "$env:LOCALAPPDATA\video-streamer\video-streamer-server.exe"
+```
 
 ## IP アドレスの固定
 
@@ -47,13 +109,13 @@ Windows ファイアウォールで、サーバーのポートへの受信をプ
 
 ## ffmpeg
 
-サムネイル生成に使う。動画の長さを調べるために、同梱の ffprobe も使う。winget でインストールし、サーバーは PATH から探す。PATH に入っていない場所の ffmpeg を使う場合は、設定ファイルの `ffmpeg` にパスを書く。
+サムネイル生成に使う。動画の長さを調べるために、同梱の ffprobe も使う。winget でインストールし、サーバーは PATH から探す。PATH に入っていない場所の ffmpeg を使う場合や、常駐させる場合は、設定ファイルの `ffmpeg` にパスを書く。
 
 ```powershell
 winget install --id Gyan.FFmpeg --exact
 ```
 
-インストール後は、PATH の変更を反映するためにサーバーを起動し直す (常駐させている場合はログオンし直す)。VS Code など、インストール前から起動しているアプリのターミナルは古い PATH を引き継ぐため、アプリごと起動し直すか、ターミナルで次を実行して PATH を読み直す。
+インストール後は、PATH の変更を反映するためにサーバーを起動し直す。VS Code など、インストール前から起動しているアプリのターミナルは古い PATH を引き継ぐため、アプリごと起動し直すか、ターミナルで次を実行して PATH を読み直す。
 
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
@@ -74,4 +136,4 @@ ffmpeg がなくても一覧と再生は動き、サムネイルだけが取得�
 ## 運用上の注意
 
 - 外付けHDDがスリープから復帰するまで、最初のアクセスが遅れることがある
-- 外付けHDDが接続されていない状態でサーバーが起動した場合の扱いは未定
+- 外付けHDDが接続されていなくてもサーバーは起動する。接続するまでアプリの一覧は表示できず、接続すれば再起動しなくても動く
