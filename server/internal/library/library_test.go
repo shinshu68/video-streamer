@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"testing"
 )
 
@@ -344,5 +345,50 @@ func TestNew_AllowsExcludedDirOutsideRoot(t *testing.T) {
 	}
 	if _, _, err := lib.Resolve("フォルダA"); err != nil {
 		t.Errorf("Resolve() error = %v", err)
+	}
+}
+
+func TestVideos_ReturnsVideosOfAllFolders(t *testing.T) {
+	lib, _, _ := newTestLibrary(t)
+
+	videos, err := lib.Videos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, v := range videos {
+		paths = append(paths, v.Path)
+	}
+	sort.Strings(paths)
+	want := []string{"a.MP4", "b.mp4", "フォルダA/動画C.mp4"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("paths = %v, want %v", paths, want)
+	}
+}
+
+func TestVideos_FailsWhenRootIsMissing(t *testing.T) {
+	lib, err := New(filepath.Join(t.TempDir(), "未接続"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := lib.Videos(); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestVideoEntry_ReturnsSameEntryAsList(t *testing.T) {
+	lib, _, _ := newTestLibrary(t)
+
+	_, entries, err := lib.List("フォルダA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.VideoEntry("フォルダA/動画C.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, entries[len(entries)-1]) {
+		t.Errorf("got = %+v, want %+v", got, entries[len(entries)-1])
 	}
 }

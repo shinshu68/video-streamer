@@ -1,0 +1,257 @@
+package index
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/shinshu68/video-streamer/server/internal/library"
+)
+
+type fixture struct {
+	root  string
+	lib   *library.Library
+	index string
+}
+
+func newFixture(t *testing.T) fixture {
+	t.Helper()
+	root := t.TempDir()
+	lib, err := library.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fixture{root: root, lib: lib, index: filepath.Join(t.TempDir(), "cache", "index.json")}
+}
+
+func (f fixture) write(t *testing.T, rel, content string) {
+	t.Helper()
+	path := filepath.Join(f.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f fixture) move(t *testing.T, from, to string) {
+	t.Helper()
+	dst := filepath.Join(f.root, filepath.FromSlash(to))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(f.root, filepath.FromSlash(from)), dst); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// list はフォルダの一覧に識別子を付けて返す。
+func (f fixture) list(t *testing.T, x *Index, dir string) []library.Entry {
+	t.Helper()
+	_, entries, err := f.lib.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Identify(entries)
+	return entries
+}
+
+func TestIdentify_IDDoesNotDependOnNameOrFolder(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "same")
+	f.write(t, "フォルダA/b.mp4", "same")
+	f.write(t, "c.mp4", "diff")
+	x := Open(f.lib, f.index)
+
+	root := f.list(t, x, "")
+	sub := f.list(t, x, "フォルダA")
+
+	a, c, b := root[1], root[2], sub[0]
+	if len(a.ID) != 64 {
+		t.Errorf("ID = %q, want 64 hex digits", a.ID)
+	}
+	if a.ID != b.ID {
+		t.Errorf("同じ中身で識別子が違います: %q, %q", a.ID, b.ID)
+	}
+	if a.ID == c.ID {
+		t.Errorf("違う中身で識別子が同じです: %q", a.ID)
+	}
+}
+
+func TestIdentify_LeavesDirsWithoutID(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "フォルダA/b.mp4", "x")
+	x := Open(f.lib, f.index)
+
+	if root := f.list(t, x, ""); root[0].ID != "" {
+		t.Errorf("フォルダの ID = %q", root[0].ID)
+	}
+}
+
+func TestIdentify_UsesSavedIDUntilSizeOrModifiedChanges(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "before")
+	first := f.list(t, Open(f.lib, f.index), "")[0].ID
+
+	// サイズと更新日時が同じなら読み直さないことを、中身だけ変えて確かめる。
+	path := filepath.Join(f.root, "a.mp4")
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "a.mp4", "BEFORE")
+	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.list(t, Open(f.lib, f.index), "")[0].ID; got != first {
+		t.Errorf("保存した識別子を使っていません: %q, want %q", got, first)
+	}
+
+	later := fi.ModTime().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.list(t, Open(f.lib, f.index), "")[0].ID; got == first {
+		t.Errorf("更新日時が変わっても読み直していません: %q", got)
+	}
+}
+
+func TestComputeID_UsesSizeHeadAndTailOnly(t *testing.T) {
+	const size = 3 * hashedBytes
+	id := func(mutate func(b []byte)) string {
+		t.Helper()
+		b := make([]byte, size)
+		mutate(b)
+		got, err := computeID(bytes.NewReader(b), size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	base := id(func([]byte) {})
+	if got := id(func(b []byte) { b[size/2] = 1 }); got != base {
+		t.Error("中央の変更で識別子が変わりました")
+	}
+	if got := id(func(b []byte) { b[0] = 1 }); got == base {
+		t.Error("先頭の変更で識別子が変わりません")
+	}
+	if got := id(func(b []byte) { b[size-1] = 1 }); got == base {
+		t.Error("末尾の変更で識別子が変わりません")
+	}
+}
+
+func TestOpen_RebuildsWhenFileIsBroken(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "x")
+	if err := os.MkdirAll(filepath.Dir(f.index), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.index, []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := f.list(t, Open(f.lib, f.index), "")[0].ID; got == "" {
+		t.Error("壊れた索引のあとで識別子を計算できません")
+	}
+}
+
+func TestFind_ReturnsVideosInRequestedOrder(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	f.write(t, "b.mp4", "b")
+	x := Open(f.lib, f.index)
+	root := f.list(t, x, "")
+
+	videos, err := x.Find([]string{root[1].ID, root[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 2 || videos[0].Name != "b.mp4" || videos[1].Name != "a.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+	if videos[0].ID != root[1].ID || videos[0].Size != 1 || videos[0].Modified == nil {
+		t.Errorf("videos[0] = %+v", videos[0])
+	}
+}
+
+func TestFind_FollowsMovedAndRenamedVideo(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	x := Open(f.lib, f.index)
+	id := f.list(t, x, "")[0].ID
+
+	f.move(t, "a.mp4", "新しいフォルダ/b.mp4")
+
+	videos, err := x.Find([]string{id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 1 || videos[0].Path != "新しいフォルダ/b.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+}
+
+func TestFind_OmitsDeletedVideoAndUnknownID(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "a")
+	f.write(t, "b.mp4", "b")
+	x := Open(f.lib, f.index)
+	root := f.list(t, x, "")
+	if err := os.Remove(filepath.Join(f.root, "a.mp4")); err != nil {
+		t.Fatal(err)
+	}
+
+	videos, err := x.Find([]string{root[0].ID, "unknown", root[1].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 1 || videos[0].Name != "b.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+}
+
+func TestFind_ReturnsOtherCopyWhenOneIsDeleted(t *testing.T) {
+	f := newFixture(t)
+	f.write(t, "a.mp4", "same")
+	f.write(t, "b.mp4", "same")
+	x := Open(f.lib, f.index)
+	root := f.list(t, x, "")
+	if err := os.Remove(filepath.Join(f.root, "a.mp4")); err != nil {
+		t.Fatal(err)
+	}
+
+	videos, err := x.Find([]string{root[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(videos) != 1 || videos[0].Name != "b.mp4" {
+		t.Fatalf("videos = %+v", videos)
+	}
+}
+
+func TestFind_WithNoIDsReturnsEmptyList(t *testing.T) {
+	f := newFixture(t)
+	videos, err := Open(f.lib, f.index).Find(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if videos == nil || len(videos) != 0 {
+		t.Fatalf("videos = %#v", videos)
+	}
+}
+
+func TestFind_FailsWhenRootCannotBeRead(t *testing.T) {
+	f := newFixture(t)
+	lib, err := library.New(filepath.Join(f.root, "未接続"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Open(lib, f.index).Find([]string{"unknown"}); err == nil {
+		t.Fatal("err = nil")
+	}
+}

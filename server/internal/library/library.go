@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,9 +31,10 @@ const (
 	EntryVideo EntryType = "video"
 )
 
-// Entry は一覧の1要素。Size と Modified は動画のときだけ持つ。
+// Entry は一覧の1要素。ID、Size、Modified は動画のときだけ持つ。ID は index パッケージが設定する。
 type Entry struct {
 	Type     EntryType  `json:"type"`
+	ID       string     `json:"id,omitempty"`
 	Name     string     `json:"name"`
 	Path     string     `json:"path"`
 	Size     int64      `json:"size,omitempty"`
@@ -182,8 +184,7 @@ func (l *Library) List(rel string) (clean string, entries []Entry, err error) {
 			if !IsVideoName(name) {
 				continue
 			}
-			modified := info.ModTime().Truncate(time.Second)
-			entries = append(entries, Entry{Type: EntryVideo, Name: name, Path: path, Size: info.Size(), Modified: &modified})
+			entries = append(entries, videoEntry(name, path, info))
 		}
 	}
 
@@ -194,6 +195,38 @@ func (l *Library) List(rel string) (clean string, entries []Entry, err error) {
 		return entries[i].Name < entries[j].Name
 	})
 	return clean, entries, nil
+}
+
+func videoEntry(name, path string, info fs.FileInfo) Entry {
+	modified := info.ModTime().Truncate(time.Second)
+	return Entry{Type: EntryVideo, Name: name, Path: path, Size: info.Size(), Modified: &modified}
+}
+
+// Videos は公開フォルダ全体の動画を返す。公開フォルダを読めないときはエラーを返す。
+func (l *Library) Videos() ([]Entry, error) {
+	videos := []Entry{}
+	dirs := []string{""}
+	for len(dirs) > 0 {
+		dir := dirs[len(dirs)-1]
+		dirs = dirs[:len(dirs)-1]
+		_, entries, err := l.List(dir)
+		if err != nil {
+			if dir == "" {
+				return nil, err
+			}
+			// 読めないサブフォルダが1つあっても、残りの動画は探せるようにする。
+			log.Printf("フォルダを読めません (%s): %v", dir, err)
+			continue
+		}
+		for _, e := range entries {
+			if e.Type == EntryDir {
+				dirs = append(dirs, e.Path)
+			} else {
+				videos = append(videos, e)
+			}
+		}
+	}
+	return videos, nil
 }
 
 func joinRel(dir, name string) string {
@@ -218,6 +251,15 @@ func (l *Library) Video(rel string) (abs string, clean string, fi fs.FileInfo, e
 		return "", "", nil, ErrNotFound
 	}
 	return abs, clean, fi, nil
+}
+
+// VideoEntry は rel の動画の一覧の要素を返す。動画でないファイルやフォルダは ErrNotFound を返す。
+func (l *Library) VideoEntry(rel string) (Entry, error) {
+	_, clean, fi, err := l.Video(rel)
+	if err != nil {
+		return Entry{}, err
+	}
+	return videoEntry(fi.Name(), clean, fi), nil
 }
 
 // OpenVideo は rel の動画を開く。動画でないファイルやフォルダは ErrNotFound を返す。

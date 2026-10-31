@@ -34,6 +34,7 @@ server/
     ├── config/           # 設定ファイルの読み込み
     ├── library/          # 公開フォルダのパスの検証と一覧 (Windows の属性の判定は attr_windows.go)
     ├── thumbnail/        # ffmpeg でのサムネイルの生成とキャッシュ
+    ├── index/            # 動画の識別子の計算と、識別子とパスの索引
     └── httpapi/          # HTTP ハンドラー (docs/api.md のエンドポイント)
 ```
 
