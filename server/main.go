@@ -13,6 +13,7 @@ import (
 
 	"github.com/shinshu68/video-streamer/server/internal/config"
 	"github.com/shinshu68/video-streamer/server/internal/httpapi"
+	"github.com/shinshu68/video-streamer/server/internal/index"
 	"github.com/shinshu68/video-streamer/server/internal/library"
 	"github.com/shinshu68/video-streamer/server/internal/thumbnail"
 )
@@ -47,9 +48,11 @@ func main() {
 		thumbnailConcurrency,
 	)
 
+	ids := index.Open(lib, filepath.Join(cfg.Cache, "index.json"))
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           httpapi.NewHandler(lib, thumbs),
+		Handler:           httpapi.NewHandler(lib, thumbs, ids),
 		ReadHeaderTimeout: 10 * time.Second,
 		// 長い動画の配信が途中で切れないよう、WriteTimeout は設定しない。
 	}

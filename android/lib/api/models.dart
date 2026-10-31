@@ -1,10 +1,11 @@
 /// 一覧の要素の種類。docs/api.md の `type` に対応する。
 enum EntryType { dir, video }
 
-/// 一覧の1要素。[size] と [modified] は動画のときだけ持つ。
+/// 一覧の1要素。[id]、[size]、[modified] は動画のときだけ持つ。読み込めない動画の [id] は null。
 class Entry {
   const Entry({
     required this.type,
+    this.id,
     required this.name,
     required this.path,
     this.size,
@@ -15,6 +16,7 @@ class Entry {
     final modified = json['modified'] as String?;
     return Entry(
       type: EntryType.values.byName(json['type'] as String),
+      id: json['id'] as String?,
       name: json['name'] as String,
       path: json['path'] as String,
       size: json['size'] as int?,
@@ -23,6 +25,7 @@ class Entry {
   }
 
   final EntryType type;
+  final String? id;
   final String name;
   final String path;
   final int? size;

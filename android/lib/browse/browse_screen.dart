@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
 import '../api/models.dart';
 import '../api/providers.dart';
+import '../favorites/favorites_screen.dart';
 import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -23,6 +24,14 @@ class BrowseScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(path.isEmpty ? 'ライブラリ' : path.split('/').last),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.favorite),
+            tooltip: 'お気に入り',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(builder: (_) => const FavoritesScreen()),
+            ),
+          ),
           if (path.isEmpty)
             IconButton(
               icon: const Icon(Icons.settings),
@@ -39,7 +48,7 @@ class BrowseScreen extends ConsumerWidget {
           onRefresh: () => ref.refresh(listProvider(path).future),
           child: _EntryList(entries: list.entries),
         ),
-        error: (error, _) => _ErrorView(
+        error: (error, _) => ErrorView(
           message: errorMessage(error),
           onRetry: () => ref.invalidate(listProvider(path)),
         ),
@@ -312,8 +321,9 @@ String formatDate(DateTime date) {
   return '${date.year}/${two(date.month)}/${two(date.day)}';
 }
 
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
+/// 取得に失敗したことを伝え、再読み込みできるようにする表示。
+class ErrorView extends StatelessWidget {
+  const ErrorView({super.key, required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinshu68/video-streamer/server/internal/index"
 	"github.com/shinshu68/video-streamer/server/internal/library"
 	"github.com/shinshu68/video-streamer/server/internal/thumbnail"
 )
@@ -62,7 +63,8 @@ func newTestServerWithGenerator(t *testing.T, gen thumbnail.Generator) *httptest
 		t.Fatal(err)
 	}
 	thumbs := thumbnail.NewCache(t.TempDir(), gen, 2)
-	srv := httptest.NewServer(NewHandler(lib, thumbs))
+	ids := index.Open(lib, filepath.Join(t.TempDir(), "index.json"))
+	srv := httptest.NewServer(NewHandler(lib, thumbs, ids))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -265,5 +267,82 @@ func TestThumbnail_ReturnsErrorJSON(t *testing.T) {
 				t.Errorf("body = %v, want error message", body)
 			}
 		})
+	}
+}
+
+// listedVideoID は フォルダA の動画の識別子を一覧から取り出す。
+func listedVideoID(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	res := get(t, srv.URL+"/api/list?path="+url.QueryEscape("フォルダA"), nil)
+	var body struct {
+		Entries []struct {
+			ID string `json:"id"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Entries) != 1 || len(body.Entries[0].ID) != 64 {
+		t.Fatalf("body = %+v", body)
+	}
+	return body.Entries[0].ID
+}
+
+func postVideos(t *testing.T, srv *httptest.Server, reqBody string) *http.Response {
+	t.Helper()
+	res, err := http.Post(srv.URL+"/api/videos", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	return res
+}
+
+func TestVideos_ReturnsFoundVideosAsJSON(t *testing.T) {
+	srv := newTestServer(t)
+	id := listedVideoID(t, srv)
+
+	res := postVideos(t, srv, `{"ids":["unknown","`+id+`"]}`)
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		Videos []map[string]any `json:"videos"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Videos) != 1 {
+		t.Fatalf("videos = %+v", body.Videos)
+	}
+	v := body.Videos[0]
+	if v["type"] != "video" || v["id"] != id || v["name"] != "動画C.mp4" || v["path"] != "フォルダA/動画C.mp4" ||
+		v["size"] != float64(len(dummyVideo)) || v["modified"] == nil {
+		t.Errorf("video = %+v", v)
+	}
+}
+
+func TestVideos_EmptyIDsReturnsEmptyArray(t *testing.T) {
+	srv := newTestServer(t)
+
+	res := postVideos(t, srv, `{"ids":[]}`)
+
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK || strings.TrimSpace(string(got)) != `{"videos":[]}` {
+		t.Errorf("status = %d, body = %s", res.StatusCode, got)
+	}
+}
+
+func TestVideos_InvalidJSONReturnsBadRequest(t *testing.T) {
+	srv := newTestServer(t)
+
+	res := postVideos(t, srv, `{`)
+
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", res.StatusCode)
 	}
 }

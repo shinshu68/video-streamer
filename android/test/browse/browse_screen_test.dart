@@ -9,6 +9,8 @@ import 'package:video_streamer/api/api_client.dart';
 import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/api/providers.dart';
 import 'package:video_streamer/browse/browse_screen.dart';
+import 'package:video_streamer/favorites/favorites.dart';
+import 'package:video_streamer/favorites/favorites_screen.dart';
 import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
@@ -37,6 +39,7 @@ Future<void> pumpBrowse(
     testScope(
       overrides: [
         apiClientProvider.overrideWithValue(client),
+        favoritesStorageProvider.overrideWithValue(InMemoryFavoritesStorage()),
         videoControllerFactoryProvider.overrideWithValue(
           FakeVideoPlayerController.new,
         ),
@@ -217,6 +220,21 @@ void main() {
       '動画D.mp4',
     ]);
     expect(player.initialIndex, 1);
+  });
+
+  testWidgets('サブフォルダの一覧からもお気に入りの画面を開ける', (tester) async {
+    await pumpBrowse(
+      tester,
+      fakeServer({
+        'フォルダA': {'path': 'フォルダA', 'entries': []},
+      }),
+      path: 'フォルダA',
+    );
+
+    await tester.tap(find.byTooltip('お気に入り'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FavoritesScreen), findsOneWidget);
   });
 
   testWidgets('空のフォルダではその旨を表示する', (tester) async {
