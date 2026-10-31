@@ -275,6 +275,27 @@ void main() {
     expect(find.text('このフォルダには動画がありません'), findsOneWidget);
   });
 
+  testWidgets('引っ張って更新に失敗したらメッセージを出し、例外を残さない', (tester) async {
+    var fail = false;
+    final client = ApiClient(
+      Uri.parse('http://192.168.0.10:8765'),
+      httpClient: MockClient((_) async {
+        if (fail) {
+          throw http.ClientException('connection refused');
+        }
+        return http.Response('{"path":"","entries":[]}', 200);
+      }),
+    );
+    await pumpBrowse(tester, client);
+
+    fail = true;
+    await tester.fling(find.byType(ListView), const Offset(0, 300), 1000);
+    await tester.pumpAndSettle();
+
+    expect(find.text('サーバーに接続できません'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   test('errorMessage はステータスコードごとに理由を返す', () {
     expect(errorMessage(const ApiException(404)), 'フォルダが見つかりません');
     expect(errorMessage(const ApiException(403)), 'このフォルダは開けません');

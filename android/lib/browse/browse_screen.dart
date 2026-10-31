@@ -45,7 +45,10 @@ class BrowseScreen extends ConsumerWidget {
       ),
       body: result.when(
         data: (list) => RefreshIndicator(
-          onRefresh: () => ref.refresh(listProvider(path).future),
+          // 失敗は listProvider の状態になり ErrorView で表示されるため、受け取るだけでよい。
+          onRefresh: () => ref
+              .refresh(listProvider(path).future)
+              .then<void>((_) {}, onError: (_) {}),
           child: _EntryList(entries: list.entries),
         ),
         error: (error, _) => ErrorView(
