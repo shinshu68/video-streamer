@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,6 +25,9 @@ type Generator interface {
 // generateTimeout は1本の生成にかける時間の上限。HDD のスリープからの復帰を見込んだ長さにする。
 const generateTimeout = 60 * time.Second
 
+// failureRetryAfter は生成に失敗した動画を、再び生成するまでの時間。
+const failureRetryAfter = 10 * time.Minute
+
 // formatVersion はサムネイルの作り方 (位置・大きさなど) の版。作り方を変えたら上げる。
 // キャッシュの名前に含め、前の作り方で生成したものを返さないようにする。
 const formatVersion = 2
@@ -33,14 +37,21 @@ type Cache struct {
 	dir string
 	gen Generator
 	sem chan struct{}
+	now func() time.Time
 
 	mu       sync.Mutex
 	inflight map[string]*call
+	failures map[string]failure
 }
 
 type call struct {
 	done chan struct{}
 	err  error
+}
+
+type failure struct {
+	at  time.Time
+	err error
 }
 
 // NewCache は同時に concurrency 個まで gen を動かす Cache を作る。
@@ -49,7 +60,9 @@ func NewCache(dir string, gen Generator, concurrency int) *Cache {
 		dir:      dir,
 		gen:      gen,
 		sem:      make(chan struct{}, concurrency),
+		now:      time.Now,
 		inflight: map[string]*call{},
+		failures: map[string]failure{},
 	}
 }
 
@@ -63,6 +76,10 @@ func (c *Cache) Path(ctx context.Context, video, rel string, fi fs.FileInfo) (st
 	}
 
 	c.mu.Lock()
+	if f, ok := c.failures[key]; ok && c.now().Sub(f.at) < failureRetryAfter {
+		c.mu.Unlock()
+		return "", f.err
+	}
 	cl, ok := c.inflight[key]
 	if !ok {
 		cl = &call{done: make(chan struct{})}
@@ -84,7 +101,7 @@ func (c *Cache) Path(ctx context.Context, video, rel string, fi fs.FileInfo) (st
 }
 
 func (c *Cache) generate(ctx context.Context, video, path, key string, cl *call) {
-	cl.err = c.generateFile(ctx, video, path)
+	cl.err = c.generateFile(ctx, video, path, key)
 
 	c.mu.Lock()
 	delete(c.inflight, key)
@@ -92,7 +109,18 @@ func (c *Cache) generate(ctx context.Context, video, path, key string, cl *call)
 	close(cl.done)
 }
 
-func (c *Cache) generateFile(ctx context.Context, video, path string) error {
+// rememberFailure は key の動画の生成の失敗を覚え、期限の切れた失敗を忘れる。
+func (c *Cache) rememberFailure(key string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	maps.DeleteFunc(c.failures, func(_ string, f failure) bool {
+		return now.Sub(f.at) >= failureRetryAfter
+	})
+	c.failures[key] = failure{at: now, err: err}
+}
+
+func (c *Cache) generateFile(ctx context.Context, video, path, key string) error {
 	c.sem <- struct{}{}
 	defer func() { <-c.sem }()
 
@@ -109,6 +137,7 @@ func (c *Cache) generateFile(ctx context.Context, video, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, generateTimeout)
 	defer cancel()
 	if err := c.gen.Generate(ctx, video, tmp.Name()); err != nil {
+		c.rememberFailure(key, err)
 		return err
 	}
 	// 書きかけのファイルをキャッシュとして返さないよう、生成が終わってから正式な名前にする。
