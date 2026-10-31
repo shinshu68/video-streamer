@@ -239,6 +239,7 @@ void main() {
     await tester.pumpWidget(
       testScope(
         overrides: [
+          pictureInPictureProvider.overrideWithValue(FakePictureInPicture()),
           videoControllerFactoryProvider.overrideWithValue(
             FakeVideoPlayerController.new,
           ),
@@ -287,14 +288,11 @@ void main() {
 
       await tester.tap(find.byTooltip(button));
 
-      expect(pip.entered, [
-        (
-          size: const Size(1920, 1080),
-          isPlaying: true,
-          hasPrevious: false,
-          hasNext: true,
-        ),
-      ]);
+      final state = pip.entered.single;
+      expect(state.size, const Size(1920, 1080));
+      expect(state.isPlaying, isTrue);
+      expect(state.hasPrevious, isFalse);
+      expect(state.hasNext, isTrue);
     });
 
     testWidgets('縦向きではボタンをハートの下に並べる', (tester) async {
@@ -316,6 +314,29 @@ void main() {
       final favorite = tester.getCenter(find.byTooltip('お気に入りに追加'));
       expect(pictureInPicture.dx, greaterThan(favorite.dx));
       expect(pictureInPicture.dy, favorite.dy);
+    });
+
+    testWidgets('再生中か一時停止中かを小窓に入る前から伝える', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      await tester.pump();
+      await tester.pump();
+      expect(pip.updated.last.isPlaying, isTrue);
+
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+      await tester.pump();
+      expect(pip.updated.last.isPlaying, isFalse);
+    });
+
+    testWidgets('再生画面を離れると自動で小窓に入らないようにする', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      expect(pip.autoEnterDisabled, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+
+      expect(pip.autoEnterDisabled, isTrue);
     });
 
     testWidgets('横向きでは操作を出したときだけボタンを出す', (tester) async {
@@ -389,11 +410,13 @@ void main() {
       );
       await tester.pump();
       await enter(tester, pip);
+      await tester.pump();
+      final sent = pip.updated.length;
 
       await controllers.single.seekTo(const Duration(seconds: 5));
       await tester.pump();
 
-      expect(pip.updated, isEmpty);
+      expect(pip.updated, hasLength(sent));
     });
 
     testWidgets('小窓の次へと前へで動画を切り替え、端の動画ではボタンの状態を反映する', (tester) async {

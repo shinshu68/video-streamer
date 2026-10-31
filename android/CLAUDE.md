@@ -55,7 +55,7 @@ lib/
 | 値 | Dart | Kotlin |
 | --- | --- | --- |
 | MethodChannel の名前 `com.shinshu68.video_streamer/picture_in_picture` | lib/player/picture_in_picture.dart | android/app/src/main/kotlin/com/shinshu68/video_streamer/MainActivity.kt |
-| メソッド名 `isSupported`・`enter`・`update`・`onModeChanged`・`onAction` と、`enter`・`update` の引数のキー | 同上 | 同上 |
+| メソッド名 `isSupported`・`enter`・`update`・`disableAutoEnter`・`onModeChanged`・`onAction` と、`enter`・`update` の引数のキー | 同上 | 同上 |
 | `onAction` の値 `previous`・`playPause`・`next` | 同上の `PictureInPictureAction` | 同上 |
 
 ## 動作確認

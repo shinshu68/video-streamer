@@ -41,6 +41,7 @@ class FakePictureInPicture implements PictureInPicture {
   final bool supported;
   final entered = <PictureInPictureState>[];
   final updated = <PictureInPictureState>[];
+  bool autoEnterDisabled = false;
 
   final _modeChanges = StreamController<bool>.broadcast(sync: true);
   final _actions = StreamController<PictureInPictureAction>.broadcast(
@@ -65,6 +66,9 @@ class FakePictureInPicture implements PictureInPicture {
 
   @override
   Future<void> update(PictureInPictureState state) async => updated.add(state);
+
+  @override
+  Future<void> disableAutoEnter() async => autoEnterDisabled = true;
 }
 
 /// テスト用の ProviderScope。自動の再試行はタイマーが残るため止める。

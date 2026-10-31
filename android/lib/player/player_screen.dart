@@ -41,17 +41,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late int _current = widget.initialIndex;
   bool? _fullscreen;
   bool _pictureInPicture = false;
+  late final PictureInPicture _pictureInPictureService;
   late final StreamSubscription<bool> _modeChanges;
   late final StreamSubscription<PictureInPictureAction> _actions;
 
   @override
   void initState() {
     super.initState();
-    final pictureInPicture = ref.read(pictureInPictureProvider);
-    _modeChanges = pictureInPicture.modeChanges.listen(
+    _pictureInPictureService = ref.read(pictureInPictureProvider);
+    _modeChanges = _pictureInPictureService.modeChanges.listen(
       (active) => setState(() => _pictureInPicture = active),
     );
-    _actions = pictureInPicture.actions.listen(_onPictureInPictureAction);
+    _actions = _pictureInPictureService.actions.listen(
+      _onPictureInPictureAction,
+    );
   }
 
   @override
@@ -70,6 +73,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _pictureInPictureService.disableAutoEnter();
     _modeChanges.cancel();
     _actions.cancel();
     _pageController.dispose();
@@ -232,9 +236,6 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
   }
 
   void _updatePictureInPicture() {
-    if (!widget.pictureInPicture) {
-      return;
-    }
     final state = _pictureInPictureState();
     if (state != _sentState) {
       _sentState = state;

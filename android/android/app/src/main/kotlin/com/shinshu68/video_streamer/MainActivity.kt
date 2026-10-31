@@ -71,6 +71,14 @@ class MainActivity : FlutterActivity() {
                 }
                 result.success(null)
             }
+            "disableAutoEnter" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setPictureInPictureParams(
+                        PictureInPictureParams.Builder().setAutoEnterEnabled(false).build(),
+                    )
+                }
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -107,6 +115,9 @@ class MainActivity : FlutterActivity() {
         val height = call.argument<Int>("height")!!
         if (width > 0 && height > 0) {
             builder.setAspectRatio(aspectRatio(width, height))
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(isPlaying)
         }
         return builder.build()
     }

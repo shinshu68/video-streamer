@@ -28,8 +28,12 @@ abstract interface class PictureInPicture {
   /// [state] の内容で小窓に入る。
   Future<void> enter(PictureInPictureState state);
 
-  /// 表示中の小窓に [state] を反映する。
+  /// [state] を伝える。再生中はホームに戻ったときに自動で小窓に入り、
+  /// 小窓の表示中はその内容に反映する。
   Future<void> update(PictureInPictureState state);
+
+  /// ホームに戻ったときに自動で小窓に入らないようにする。
+  Future<void> disableAutoEnter();
 }
 
 /// MainActivity の実装を MethodChannel で呼ぶ [PictureInPicture]。
@@ -62,6 +66,9 @@ class MethodChannelPictureInPicture implements PictureInPicture {
   @override
   Future<void> update(PictureInPictureState state) =>
       _channel.invokeMethod('update', _arguments(state));
+
+  @override
+  Future<void> disableAutoEnter() => _channel.invokeMethod('disableAutoEnter');
 
   Map<String, Object> _arguments(PictureInPictureState state) => {
     'width': state.size.width.round(),
