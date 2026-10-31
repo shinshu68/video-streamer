@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -75,21 +74,19 @@ func contains(dir, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func (l *Library) isExcluded(abs string) bool {
+// isExcluded は fi のフォルダが除外するフォルダかを返す。
+// Windows は末尾のドットや空白、短縮名でも同じフォルダを指すため、パスの文字列では比べない。
+func (l *Library) isExcluded(fi fs.FileInfo) bool {
+	if !fi.IsDir() {
+		return false
+	}
 	for _, ex := range l.excluded {
-		if samePath(abs, ex) {
+		exInfo, err := os.Lstat(ex)
+		if err == nil && os.SameFile(fi, exInfo) {
 			return true
 		}
 	}
 	return false
-}
-
-// samePath は2つの絶対パスが同じ場所を指すかを返す。Windows のパスは大文字小文字を区別しない。
-func samePath(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
 }
 
 // Resolve は公開フォルダからの相対パス rel を検証し、実際のパスと、
@@ -109,7 +106,7 @@ func (l *Library) Resolve(rel string) (abs string, clean string, err error) {
 		if err != nil {
 			return "", "", ErrNotFound
 		}
-		if !isPlainDirOrFile(fi.Mode()) || hasHiddenOrSystemAttr(fi) || l.isExcluded(abs) {
+		if !isPlainDirOrFile(fi.Mode()) || hasHiddenOrSystemAttr(fi) || l.isExcluded(fi) {
 			return "", "", ErrNotFound
 		}
 	}
@@ -173,7 +170,7 @@ func (l *Library) List(rel string) (clean string, entries []Entry, err error) {
 			// 一覧を作る間に消されたファイルは、一覧から外すだけでよい。
 			continue
 		}
-		if hasHiddenOrSystemAttr(info) || l.isExcluded(filepath.Join(abs, name)) {
+		if hasHiddenOrSystemAttr(info) || l.isExcluded(info) {
 			continue
 		}
 		path := joinRel(clean, name)

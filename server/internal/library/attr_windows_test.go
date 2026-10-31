@@ -28,6 +28,57 @@ func mustJunction(t *testing.T, target, link string) {
 	}
 }
 
+// shortName は path の最後の要素の 8.3 形式の短縮名を返す。
+func shortName(t *testing.T, path string) string {
+	t.Helper()
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]uint16, syscall.MAX_PATH)
+	if _, err := syscall.GetShortPathName(p, &buf[0], uint32(len(buf))); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Base(syscall.UTF16ToString(buf))
+}
+
+func TestWindowsPath_ExcludedDirCannotBeReachedByAlias(t *testing.T) {
+	_, root, _ := newTestLibrary(t)
+	cache := filepath.Join(root, "video-streamer-cache")
+	mustMkdir(t, cache)
+	mustWrite(t, filepath.Join(cache, "thumb.mp4"), "dummy")
+	lib, err := New(root, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, alias := range []string{"video-streamer-cache.", "video-streamer-cache ", "video-streamer-cache. ."} {
+		for _, rel := range []string{alias, alias + "/thumb.mp4"} {
+			if _, _, err := lib.Resolve(rel); !errors.Is(err, ErrNotFound) {
+				t.Errorf("Resolve(%q) error = %v, want ErrNotFound", rel, err)
+			}
+		}
+	}
+}
+
+func TestWindowsPath_ExcludedDirCannotBeReachedByShortName(t *testing.T) {
+	_, root, _ := newTestLibrary(t)
+	cache := filepath.Join(root, "video-streamer-cache")
+	mustMkdir(t, cache)
+	short := shortName(t, cache)
+	if short == filepath.Base(cache) {
+		t.Skip("このボリュームでは短縮名が作られない")
+	}
+	lib, err := New(root, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := lib.Resolve(short); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Resolve(%q) error = %v, want ErrNotFound", short, err)
+	}
+}
+
 func TestWindowsAttr_ExcludesHiddenAndSystemEntries(t *testing.T) {
 	lib, root, _ := newTestLibrary(t)
 	mustMkdir(t, filepath.Join(root, "システムフォルダ"))
