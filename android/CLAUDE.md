@@ -57,6 +57,7 @@ lib/
 | MethodChannel の名前 `com.shinshu68.video_streamer/picture_in_picture` | lib/player/picture_in_picture.dart | android/app/src/main/kotlin/com/shinshu68/video_streamer/MainActivity.kt |
 | メソッド名 `isSupported`・`enter`・`update`・`disableAutoEnter`・`onModeChanged`・`onAction` と、`enter`・`update` の引数のキー | 同上 | 同上 |
 | `onAction` の値 `previous`・`playPause`・`next` | 同上の `PictureInPictureAction` | 同上 |
+| MethodChannel の名前 `com.shinshu68.video_streamer/screen` とメソッド名 `setKeepOn` | lib/player/screen_awake.dart | 同上 |
 
 ## 動作確認
 

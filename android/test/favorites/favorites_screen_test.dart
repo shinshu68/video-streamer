@@ -10,6 +10,7 @@ import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/favorites/favorites_screen.dart';
 import 'package:video_streamer/player/picture_in_picture.dart';
 import 'package:video_streamer/player/player_screen.dart';
+import 'package:video_streamer/player/screen_awake.dart';
 
 import '../helpers.dart';
 
@@ -59,6 +60,7 @@ Future<void> pumpFavorites(
         apiClientProvider.overrideWithValue(client),
         favoritesStorageProvider.overrideWithValue(storage),
         pictureInPictureProvider.overrideWithValue(FakePictureInPicture()),
+        screenAwakeProvider.overrideWithValue(FakeScreenAwake()),
         videoControllerFactoryProvider.overrideWithValue(
           FakeVideoPlayerController.new,
         ),

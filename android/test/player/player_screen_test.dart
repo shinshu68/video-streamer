@@ -5,6 +5,7 @@ import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/player/picture_in_picture.dart';
 import 'package:video_streamer/player/player_screen.dart';
+import 'package:video_streamer/player/screen_awake.dart';
 
 import '../helpers.dart';
 
@@ -26,6 +27,7 @@ Future<List<String>> pumpPlayer(
   List<FakeVideoPlayerController>? controllers,
   FavoritesStorage? favorites,
   PictureInPicture? pictureInPicture,
+  ScreenAwake? screenAwake,
 }) async {
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
@@ -48,6 +50,7 @@ Future<List<String>> pumpPlayer(
         pictureInPictureProvider.overrideWithValue(
           pictureInPicture ?? FakePictureInPicture(),
         ),
+        screenAwakeProvider.overrideWithValue(screenAwake ?? FakeScreenAwake()),
         videoControllerFactoryProvider.overrideWithValue((path) {
           final controller = FakeVideoPlayerController(path);
           controllers?.add(controller);
@@ -240,6 +243,7 @@ void main() {
       testScope(
         overrides: [
           pictureInPictureProvider.overrideWithValue(FakePictureInPicture()),
+          screenAwakeProvider.overrideWithValue(FakeScreenAwake()),
           videoControllerFactoryProvider.overrideWithValue(
             FakeVideoPlayerController.new,
           ),
@@ -269,6 +273,43 @@ void main() {
 
     expect(find.text('動画A.mp4'), findsOneWidget);
     expect(controllers.map((c) => c.path), ['動画A.mp4']);
+  });
+
+  group('画面の消灯', () {
+    testWidgets('再生中は消灯させず、一時停止すると元に戻す', (tester) async {
+      final screen = FakeScreenAwake();
+      await pumpPlayer(tester, portrait, screenAwake: screen);
+      await tester.pump();
+      expect(screen.keepOn, isTrue);
+
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+      expect(screen.keepOn, isFalse);
+
+      await tester.tap(find.byTooltip('再生'));
+      await tester.pump();
+      expect(screen.keepOn, isTrue);
+    });
+
+    testWidgets('再生画面を離れると元に戻す', (tester) async {
+      final screen = FakeScreenAwake();
+      await pumpPlayer(tester, portrait, screenAwake: screen);
+      await tester.pump();
+
+      await tester.pumpWidget(const SizedBox());
+
+      expect(screen.keepOn, isFalse);
+    });
+
+    testWidgets('次の動画に切り替えても再生中は消灯させない', (tester) async {
+      final screen = FakeScreenAwake();
+      await pumpPlayer(tester, portrait, screenAwake: screen);
+      await tester.pump();
+
+      await swipe(tester, -300);
+
+      expect(screen.keepOn, isTrue);
+    });
   });
 
   group('ピクチャーインピクチャー', () {

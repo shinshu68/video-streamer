@@ -9,6 +9,7 @@ import '../api/models.dart';
 import '../api/providers.dart';
 import '../favorites/favorite_button.dart';
 import 'picture_in_picture.dart';
+import 'screen_awake.dart';
 
 /// 動画の相対パスから、配信 URL を再生するコントローラーを作る関数。
 final videoControllerFactoryProvider =
@@ -165,11 +166,14 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
   VideoPlayerController? _controller;
   Future<void>? _initialized;
   PictureInPictureState? _sentState;
+  late final ScreenAwake _screenAwake;
+  bool _keepingScreenOn = false;
   late final StreamSubscription<PictureInPictureAction> _actions;
 
   @override
   void initState() {
     super.initState();
+    _screenAwake = ref.read(screenAwakeProvider);
     _actions = ref
         .read(pictureInPictureProvider)
         .actions
@@ -191,7 +195,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
   @override
   void dispose() {
     _actions.cancel();
-    _controller?.dispose();
+    _stop();
     super.dispose();
   }
 
@@ -201,6 +205,7 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
     );
     _controller = controller;
     controller.addListener(_updatePictureInPicture);
+    controller.addListener(_updateKeepScreenOn);
     _updatePictureInPicture();
     _initialized = controller.initialize().then((_) => controller.play());
   }
@@ -209,6 +214,15 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
     _controller?.dispose();
     _controller = null;
     _initialized = null;
+    _updateKeepScreenOn();
+  }
+
+  void _updateKeepScreenOn() {
+    final isPlaying = _controller?.value.isPlaying ?? false;
+    if (isPlaying != _keepingScreenOn) {
+      _keepingScreenOn = isPlaying;
+      _screenAwake.setKeepOn(isPlaying);
+    }
   }
 
   void _togglePlayPause() {
