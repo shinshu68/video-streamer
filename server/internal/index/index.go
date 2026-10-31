@@ -50,7 +50,8 @@ type Index struct {
 	path string
 	now  func() time.Time
 
-	scanMu sync.Mutex
+	scanMu     sync.Mutex
+	identifyMu sync.Mutex
 
 	mu       sync.Mutex
 	records  map[string]record
@@ -101,8 +102,52 @@ func (x *Index) load() {
 	}
 }
 
+// IdentifyWithin は entries の動画に、wait の間に求められた識別子を設定する。
+// 間に合わなかった動画の識別子は空のままにし、計算は戻ったあとも続ける。
+func (x *Index) IdentifyWithin(entries []library.Entry, wait time.Duration) {
+	if x.setKnownIDs(entries) {
+		return
+	}
+	pending := slices.Clone(entries)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		x.Identify(pending)
+	}()
+	select {
+	case <-done:
+	case <-time.After(wait):
+	}
+	x.setKnownIDs(entries)
+}
+
+// setKnownIDs は索引にある動画の識別子を entries に設定し、全ての動画に設定できたかを返す。
+func (x *Index) setKnownIDs(entries []library.Entry) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.load()
+	complete := true
+	for i := range entries {
+		e := &entries[i]
+		if e.Type != library.EntryVideo {
+			continue
+		}
+		known, ok := x.records[e.Path]
+		if ok && known.Size == e.Size && known.Modified == e.Modified.Unix() {
+			e.ID = known.ID
+		} else {
+			complete = false
+		}
+	}
+	return complete
+}
+
 // Identify は entries の動画に識別子を設定する。読めない動画の識別子は空のままにする。
 func (x *Index) Identify(entries []library.Entry) {
+	// 同じ動画の計算が重なって HDD のシークが増えないよう、1つずつ計算する。
+	x.identifyMu.Lock()
+	defer x.identifyMu.Unlock()
+
 	x.mu.Lock()
 	x.load()
 	x.mu.Unlock()
