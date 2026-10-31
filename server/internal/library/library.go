@@ -202,9 +202,11 @@ func videoEntry(name, path string, info fs.FileInfo) Entry {
 	return Entry{Type: EntryVideo, Name: name, Path: path, Size: info.Size(), Modified: &modified}
 }
 
-// Videos は公開フォルダ全体の動画を返す。公開フォルダを読めないときはエラーを返す。
-func (l *Library) Videos() ([]Entry, error) {
-	videos := []Entry{}
+// Videos は公開フォルダ全体の動画と、全てのサブフォルダを読めたかを返す。
+// 公開フォルダを読めないときはエラーを返す。
+func (l *Library) Videos() (videos []Entry, complete bool, err error) {
+	videos = []Entry{}
+	complete = true
 	dirs := []string{""}
 	for len(dirs) > 0 {
 		dir := dirs[len(dirs)-1]
@@ -212,10 +214,11 @@ func (l *Library) Videos() ([]Entry, error) {
 		_, entries, err := l.List(dir)
 		if err != nil {
 			if dir == "" {
-				return nil, err
+				return nil, false, err
 			}
 			// 読めないサブフォルダが1つあっても、残りの動画は探せるようにする。
 			log.Printf("フォルダを読めません (%s): %v", dir, err)
+			complete = false
 			continue
 		}
 		for _, e := range entries {
@@ -226,7 +229,7 @@ func (l *Library) Videos() ([]Entry, error) {
 			}
 		}
 	}
-	return videos, nil
+	return videos, complete, nil
 }
 
 func joinRel(dir, name string) string {
