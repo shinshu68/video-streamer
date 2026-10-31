@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.lifecycle.Lifecycle
@@ -78,6 +79,23 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).apply {
             setMethodCallHandler(::onMethodCall)
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "setKeepOn") {
+                    setKeepScreenOn(call.arguments as Boolean)
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    private fun setKeepScreenOn(keepOn: Boolean) {
+        if (keepOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -292,6 +310,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "com.shinshu68.video_streamer/picture_in_picture"
+        const val SCREEN_CHANNEL = "com.shinshu68.video_streamer/screen"
         const val EXTRA_ACTION_NAME = "name"
         val MIN_ASPECT_RATIO = Rational(100, 239)
         val MAX_ASPECT_RATIO = Rational(239, 100)

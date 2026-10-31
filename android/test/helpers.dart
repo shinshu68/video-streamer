@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/player/picture_in_picture.dart';
+import 'package:video_streamer/player/screen_awake.dart';
 import 'package:video_streamer/settings/server_address.dart';
 
 /// 端末に保存する代わりにメモリに持つストレージ。
@@ -69,6 +70,14 @@ class FakePictureInPicture implements PictureInPicture {
 
   @override
   Future<void> disableAutoEnter() async => autoEnterDisabled = true;
+}
+
+/// 端末の代わりに、画面を消灯させない状態かを記録する。
+class FakeScreenAwake implements ScreenAwake {
+  bool keepOn = false;
+
+  @override
+  Future<void> setKeepOn(bool keepOn) async => this.keepOn = keepOn;
 }
 
 /// テスト用の ProviderScope。自動の再試行はタイマーが残るため止める。
