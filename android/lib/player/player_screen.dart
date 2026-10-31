@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import '../api/models.dart';
 import '../api/providers.dart';
+import '../favorites/favorite_button.dart';
 
 /// 動画の相対パスから、配信 URL を再生するコントローラーを作る関数。
 final videoControllerFactoryProvider =
@@ -214,13 +215,26 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
                 title: widget.entry.name,
                 isPlaying: value.isPlaying,
                 video: video,
+                favorite: FavoriteButton(entry: widget.entry),
                 progress: progress,
                 controls: controls,
               );
             }
             return Column(
               children: [
-                Expanded(child: video),
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      video,
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: FavoriteButton(entry: widget.entry),
+                      ),
+                    ],
+                  ),
+                ),
                 progress,
                 controls,
               ],
@@ -240,6 +254,7 @@ class _FullscreenLayout extends StatefulWidget {
     required this.title,
     required this.isPlaying,
     required this.video,
+    required this.favorite,
     required this.progress,
     required this.controls,
   });
@@ -249,6 +264,7 @@ class _FullscreenLayout extends StatefulWidget {
   final String title;
   final bool isPlaying;
   final Widget video;
+  final Widget favorite;
   final Widget progress;
   final Widget controls;
 
@@ -329,7 +345,16 @@ class _FullscreenLayoutState extends State<_FullscreenLayout> {
                   const Spacer(),
                   ColoredBox(
                     color: Colors.black54,
-                    child: Column(children: [widget.progress, widget.controls]),
+                    child: Column(
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: widget.favorite,
+                        ),
+                        widget.progress,
+                        widget.controls,
+                      ],
+                    ),
                   ),
                 ],
               ),

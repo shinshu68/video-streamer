@@ -40,6 +40,25 @@ class ApiClient {
     );
   }
 
+  /// [ids] の識別子の動画を取得する。見つからない識別子は結果に含まれない。
+  Future<List<Entry>> videos(List<String> ids) async {
+    final res = await _http
+        .post(
+          baseUri.replace(path: '/api/videos'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'ids': ids}),
+        )
+        .timeout(timeout);
+    if (res.statusCode != 200) {
+      throw ApiException(res.statusCode);
+    }
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    return [
+      for (final e in body['videos'] as List<dynamic>)
+        Entry.fromJson(e as Map<String, dynamic>),
+    ];
+  }
+
   /// `path` の動画の配信 URL を返す。
   Uri mediaUri(String path) {
     return baseUri.replace(pathSegments: ['media', ...path.split('/')]);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_streamer/api/models.dart';
+import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
@@ -10,9 +11,9 @@ const portrait = Size(1080, 2400);
 const landscape = Size(2400, 1080);
 
 const videos = [
-  Entry(type: EntryType.video, name: '動画A.mp4', path: '動画A.mp4'),
-  Entry(type: EntryType.video, name: '動画B.mp4', path: '動画B.mp4'),
-  Entry(type: EntryType.video, name: '動画C.mp4', path: '動画C.mp4'),
+  Entry(type: EntryType.video, id: 'A', name: '動画A.mp4', path: '動画A.mp4'),
+  Entry(type: EntryType.video, id: 'B', name: '動画B.mp4', path: '動画B.mp4'),
+  Entry(type: EntryType.video, id: 'C', name: '動画C.mp4', path: '動画C.mp4'),
 ];
 
 /// [videos] の [initialIndex] 番目から再生画面を [size] の画面で開き、
@@ -22,6 +23,7 @@ Future<List<String>> pumpPlayer(
   Size size, {
   int initialIndex = 0,
   List<FakeVideoPlayerController>? controllers,
+  FavoritesStorage? favorites,
 }) async {
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
@@ -38,6 +40,9 @@ Future<List<String>> pumpPlayer(
   await tester.pumpWidget(
     testScope(
       overrides: [
+        favoritesStorageProvider.overrideWithValue(
+          favorites ?? InMemoryFavoritesStorage(),
+        ),
         videoControllerFactoryProvider.overrideWithValue((path) {
           final controller = FakeVideoPlayerController(path);
           controllers?.add(controller);
@@ -190,6 +195,62 @@ void main() {
     await swipe(tester, -300);
     expect(find.text('動画C.mp4'), findsOneWidget);
     expect(controllers.map((c) => c.path), ['動画A.mp4', '動画B.mp4', '動画C.mp4']);
+  });
+
+  testWidgets('縦向きではハートのボタンでお気に入りを付け外しする', (tester) async {
+    final storage = InMemoryFavoritesStorage();
+    await pumpPlayer(tester, portrait, favorites: storage);
+
+    await tester.tap(find.byTooltip('お気に入りに追加'));
+    await tester.pump();
+    expect(storage.saved.map((f) => f.id), ['A']);
+
+    await tester.tap(find.byTooltip('お気に入りから外す'));
+    await tester.pump();
+    expect(storage.saved, isEmpty);
+  });
+
+  testWidgets('ハートのボタンは切り替えた先の動画を対象にする', (tester) async {
+    final storage = InMemoryFavoritesStorage();
+    await pumpPlayer(tester, portrait, favorites: storage);
+
+    await swipe(tester, -300);
+    await tester.tap(find.byTooltip('お気に入りに追加'));
+    await tester.pump();
+
+    expect(storage.saved.map((f) => f.id), ['B']);
+  });
+
+  testWidgets('横向きでは操作を出したときだけハートのボタンを出す', (tester) async {
+    await pumpPlayer(tester, landscape);
+    expect(find.byTooltip('お気に入りに追加'), findsNothing);
+
+    await tapScreenCenter(tester);
+
+    expect(find.byTooltip('お気に入りに追加'), findsOneWidget);
+  });
+
+  testWidgets('識別子のない動画にはハートのボタンを出さない', (tester) async {
+    await tester.pumpWidget(
+      testScope(
+        overrides: [
+          videoControllerFactoryProvider.overrideWithValue(
+            FakeVideoPlayerController.new,
+          ),
+        ],
+        child: const MaterialApp(
+          home: PlayerScreen(
+            entries: [
+              Entry(type: EntryType.video, name: '動画A.mp4', path: '動画A.mp4'),
+            ],
+            initialIndex: 0,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byTooltip('お気に入りに追加'), findsNothing);
   });
 
   testWidgets('横向きではスワイプしても切り替えない', (tester) async {

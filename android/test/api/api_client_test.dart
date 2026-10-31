@@ -102,6 +102,54 @@ void main() {
     expect(uri.port, 8765);
   });
 
+  group('videos', () {
+    test('識別子を本文で送り、見つかった動画を型に変換する', () async {
+      late http.Request requested;
+      final client = ApiClient(
+        baseUri,
+        httpClient: MockClient((req) async {
+          requested = req;
+          return jsonResponse({
+            'videos': [
+              {
+                'type': 'video',
+                'id': 'A',
+                'name': '動画A.mp4',
+                'path': 'フォルダB/動画A.mp4',
+                'size': 1,
+                'modified': '2026-10-25T12:00:00+09:00',
+              },
+            ],
+          });
+        }),
+      );
+
+      final videos = await client.videos(['A', 'B']);
+
+      expect(requested.method, 'POST');
+      expect(requested.url.path, '/api/videos');
+      expect(jsonDecode(requested.body), {
+        'ids': ['A', 'B'],
+      });
+      expect(videos.single.id, 'A');
+      expect(videos.single.path, 'フォルダB/動画A.mp4');
+    });
+
+    test('エラーのステータスコードは ApiException になる', () async {
+      final client = ApiClient(
+        baseUri,
+        httpClient: MockClient((_) async => jsonResponse({}, status: 500)),
+      );
+
+      expect(
+        client.videos(['A']),
+        throwsA(
+          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 500),
+        ),
+      );
+    });
+  });
+
   test('mediaUri はパスの各要素を URL エンコードする', () {
     final client = ApiClient(
       baseUri,

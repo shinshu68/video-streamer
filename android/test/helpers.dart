@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/settings/server_address.dart';
 
 /// 端末に保存する代わりにメモリに持つストレージ。
@@ -15,6 +16,19 @@ class InMemoryServerAddressStorage implements ServerAddressStorage {
 
   @override
   Future<void> save(String address) async => saved = address;
+}
+
+/// 端末に保存する代わりにメモリに持つストレージ。
+class InMemoryFavoritesStorage implements FavoritesStorage {
+  InMemoryFavoritesStorage([this.saved = const []]);
+
+  List<Favorite> saved;
+
+  @override
+  Future<List<Favorite>> load() async => saved;
+
+  @override
+  Future<void> save(List<Favorite> favorites) async => saved = favorites;
 }
 
 /// テスト用の ProviderScope。自動の再試行はタイマーが残るため止める。
