@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_streamer/api/models.dart';
 import 'package:video_streamer/favorites/favorites.dart';
+import 'package:video_streamer/player/picture_in_picture.dart';
 import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
@@ -24,6 +25,7 @@ Future<List<String>> pumpPlayer(
   int initialIndex = 0,
   List<FakeVideoPlayerController>? controllers,
   FavoritesStorage? favorites,
+  PictureInPicture? pictureInPicture,
 }) async {
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
@@ -42,6 +44,9 @@ Future<List<String>> pumpPlayer(
       overrides: [
         favoritesStorageProvider.overrideWithValue(
           favorites ?? InMemoryFavoritesStorage(),
+        ),
+        pictureInPictureProvider.overrideWithValue(
+          pictureInPicture ?? FakePictureInPicture(),
         ),
         videoControllerFactoryProvider.overrideWithValue((path) {
           final controller = FakeVideoPlayerController(path);
@@ -234,6 +239,7 @@ void main() {
     await tester.pumpWidget(
       testScope(
         overrides: [
+          pictureInPictureProvider.overrideWithValue(FakePictureInPicture()),
           videoControllerFactoryProvider.overrideWithValue(
             FakeVideoPlayerController.new,
           ),
@@ -263,5 +269,200 @@ void main() {
 
     expect(find.text('動画A.mp4'), findsOneWidget);
     expect(controllers.map((c) => c.path), ['動画A.mp4']);
+  });
+
+  group('ピクチャーインピクチャー', () {
+    const button = 'ピクチャーインピクチャー';
+
+    /// 再生画面をボタンから小窓に入った状態にする。
+    Future<void> enter(WidgetTester tester, FakePictureInPicture pip) async {
+      await tester.tap(find.byTooltip(button));
+      pip.changeMode(true);
+      await tester.pump();
+    }
+
+    testWidgets('縦向きではハートの隣のボタンで、再生の状態を添えて小窓に入る', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      await tester.pump();
+
+      await tester.tap(find.byTooltip(button));
+
+      final state = pip.entered.single;
+      expect(state.size, const Size(1920, 1080));
+      expect(state.isPlaying, isTrue);
+      expect(state.hasPrevious, isFalse);
+      expect(state.hasNext, isTrue);
+    });
+
+    testWidgets('縦向きではボタンをハートの下に並べる', (tester) async {
+      await pumpPlayer(tester, portrait);
+      await tester.pump();
+
+      expect(
+        tester.getCenter(find.byTooltip(button)).dy,
+        greaterThan(tester.getCenter(find.byTooltip('お気に入りに追加')).dy),
+      );
+    });
+
+    testWidgets('横向きではボタンをハートの右に並べる', (tester) async {
+      await pumpPlayer(tester, landscape);
+      await tapScreenCenter(tester);
+      await tester.pump();
+
+      final pictureInPicture = tester.getCenter(find.byTooltip(button));
+      final favorite = tester.getCenter(find.byTooltip('お気に入りに追加'));
+      expect(pictureInPicture.dx, greaterThan(favorite.dx));
+      expect(pictureInPicture.dy, favorite.dy);
+    });
+
+    testWidgets('再生中か一時停止中かを小窓に入る前から伝える', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      await tester.pump();
+      await tester.pump();
+      expect(pip.updated.last.isPlaying, isTrue);
+
+      await tester.tap(find.byTooltip('一時停止'));
+      await tester.pump();
+      await tester.pump();
+      expect(pip.updated.last.isPlaying, isFalse);
+    });
+
+    testWidgets('再生画面を離れると自動で小窓に入らないようにする', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      expect(pip.autoEnterDisabled, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+
+      expect(pip.autoEnterDisabled, isTrue);
+    });
+
+    testWidgets('横向きでは操作を出したときだけボタンを出す', (tester) async {
+      await pumpPlayer(tester, landscape);
+      await tester.pump();
+      expect(find.byTooltip(button), findsNothing);
+
+      await tapScreenCenter(tester);
+      await tester.pump();
+      expect(find.byTooltip(button), findsOneWidget);
+    });
+
+    testWidgets('対応していない端末ではボタンを出さない', (tester) async {
+      await pumpPlayer(
+        tester,
+        portrait,
+        pictureInPicture: FakePictureInPicture(supported: false),
+      );
+      await tester.pump();
+
+      expect(find.byTooltip(button), findsNothing);
+    });
+
+    testWidgets('小窓の中では動画だけを出し、戻ると元の画面に戻る', (tester) async {
+      final pip = FakePictureInPicture();
+      await pumpPlayer(tester, portrait, pictureInPicture: pip);
+      await tester.pump();
+
+      await enter(tester, pip);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byTooltip('一時停止'), findsNothing);
+      expect(find.byTooltip(button), findsNothing);
+
+      pip.changeMode(false);
+      await tester.pump();
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.byTooltip('一時停止'), findsOneWidget);
+    });
+
+    testWidgets('小窓の再生ボタンで一時停止と再開を切り替え、状態を小窓に反映する', (tester) async {
+      final pip = FakePictureInPicture();
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        portrait,
+        controllers: controllers,
+        pictureInPicture: pip,
+      );
+      await tester.pump();
+      await enter(tester, pip);
+
+      pip.sendAction(PictureInPictureAction.playPause);
+      await tester.pump();
+      expect(controllers.single.value.isPlaying, isFalse);
+      expect(pip.updated.last.isPlaying, isFalse);
+
+      pip.sendAction(PictureInPictureAction.playPause);
+      await tester.pump();
+      expect(controllers.single.value.isPlaying, isTrue);
+      expect(pip.updated.last.isPlaying, isTrue);
+    });
+
+    testWidgets('再生の状態が変わらない間は小窓に送り直さない', (tester) async {
+      final pip = FakePictureInPicture();
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        portrait,
+        controllers: controllers,
+        pictureInPicture: pip,
+      );
+      await tester.pump();
+      await enter(tester, pip);
+      await tester.pump();
+      final sent = pip.updated.length;
+
+      await controllers.single.seekTo(const Duration(seconds: 5));
+      await tester.pump();
+
+      expect(pip.updated, hasLength(sent));
+    });
+
+    testWidgets('小窓の次へと前へで動画を切り替え、端の動画ではボタンの状態を反映する', (tester) async {
+      final pip = FakePictureInPicture();
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        portrait,
+        initialIndex: 1,
+        controllers: controllers,
+        pictureInPicture: pip,
+      );
+      await tester.pump();
+      await enter(tester, pip);
+
+      pip.sendAction(PictureInPictureAction.next);
+      await tester.pump();
+      await tester.pump();
+      expect(controllers.last.path, '動画C.mp4');
+      expect(controllers.first.disposed, isTrue);
+      expect(controllers.last.value.isPlaying, isTrue);
+      expect(pip.updated.last.hasPrevious, isTrue);
+      expect(pip.updated.last.hasNext, isFalse);
+
+      pip.sendAction(PictureInPictureAction.previous);
+      await tester.pump();
+      await tester.pump();
+      expect(controllers.last.path, '動画B.mp4');
+    });
+
+    testWidgets('端の動画では小窓の前へで切り替えない', (tester) async {
+      final pip = FakePictureInPicture();
+      final controllers = <FakeVideoPlayerController>[];
+      await pumpPlayer(
+        tester,
+        portrait,
+        controllers: controllers,
+        pictureInPicture: pip,
+      );
+      await tester.pump();
+      await enter(tester, pip);
+
+      pip.sendAction(PictureInPictureAction.previous);
+      await tester.pump();
+
+      expect(controllers.map((c) => c.path), ['動画A.mp4']);
+    });
   });
 }

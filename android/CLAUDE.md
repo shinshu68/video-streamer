@@ -48,6 +48,16 @@ lib/
 - テストではサーバーにアクセスせず、`package:http/testing.dart` の MockClient で差し替える
 - 主な確認端末は Pixel 6a
 
+## ネイティブ側とそろえる名前
+
+片方だけ変えるとエラーが出ずに動かなくなるため、次の値は両方のファイルでそろえる。
+
+| 値 | Dart | Kotlin |
+| --- | --- | --- |
+| MethodChannel の名前 `com.shinshu68.video_streamer/picture_in_picture` | lib/player/picture_in_picture.dart | android/app/src/main/kotlin/com/shinshu68/video_streamer/MainActivity.kt |
+| メソッド名 `isSupported`・`enter`・`update`・`disableAutoEnter`・`onModeChanged`・`onAction` と、`enter`・`update` の引数のキー | 同上 | 同上 |
+| `onAction` の値 `previous`・`playPause`・`next` | 同上の `PictureInPictureAction` | 同上 |
+
 ## 動作確認
 
 ウィジェットテストと実機 (Pixel 6a) で確かめ、エミュレーターは使わない。エミュレーターでは動画のデコードが重く、再生画面の表示の更新が止まって動画の絵を確かめられず、負荷で adb からの入力も正しく届かないことがあるため。

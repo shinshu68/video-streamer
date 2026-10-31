@@ -11,6 +11,7 @@ import 'package:video_streamer/api/providers.dart';
 import 'package:video_streamer/browse/browse_screen.dart';
 import 'package:video_streamer/favorites/favorites.dart';
 import 'package:video_streamer/favorites/favorites_screen.dart';
+import 'package:video_streamer/player/picture_in_picture.dart';
 import 'package:video_streamer/player/player_screen.dart';
 
 import '../helpers.dart';
@@ -40,6 +41,7 @@ Future<void> pumpBrowse(
       overrides: [
         apiClientProvider.overrideWithValue(client),
         favoritesStorageProvider.overrideWithValue(InMemoryFavoritesStorage()),
+        pictureInPictureProvider.overrideWithValue(FakePictureInPicture()),
         videoControllerFactoryProvider.overrideWithValue(
           FakeVideoPlayerController.new,
         ),
