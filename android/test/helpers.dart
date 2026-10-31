@@ -100,6 +100,9 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
 
   bool disposed = false;
 
+  /// 実際のコントローラーの dispose は非同期で、終わるまでの間に通知が届くことがある。
+  bool notifiesWhileDisposing = false;
+
   bool _playWhenReady = false;
 
   /// 実機と同じく、バッファリング中は isPlaying を false にする。
@@ -136,6 +139,10 @@ class FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
   @override
   Future<void> dispose() async {
     disposed = true;
+    if (notifiesWhileDisposing) {
+      await null;
+      value = value.copyWith(position: const Duration(seconds: 1));
+    }
     super.dispose();
   }
 
