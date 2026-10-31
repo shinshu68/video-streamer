@@ -150,7 +150,6 @@ func (x *Index) setKnownIDs(entries []library.Entry) bool {
 
 // Identify は entries の動画に識別子を設定する。読めない動画の識別子は空のままにする。
 func (x *Index) Identify(entries []library.Entry) {
-	// 同じ動画の計算が重なって HDD のシークが増えないよう、1つずつ計算する。
 	x.identifyMu.Lock()
 	defer x.identifyMu.Unlock()
 
@@ -261,7 +260,6 @@ func (x *Index) needsScan(ids []string, found map[string]library.Entry) bool {
 func (x *Index) search(ids []string) (map[string]library.Entry, error) {
 	x.scanMu.Lock()
 	defer x.scanMu.Unlock()
-	// 待っている間に別の要求の走査が終わっていれば、同じ走査を繰り返さない。
 	found := x.lookup(ids)
 	if !x.needsScan(ids, found) {
 		return found, nil
