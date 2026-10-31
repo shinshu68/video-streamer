@@ -529,7 +529,6 @@ class _PictureInPictureButton extends ConsumerWidget {
       icon: const Icon(
         Icons.picture_in_picture_alt,
         color: Colors.white,
-        // 明るい動画に重ねても見えるようにする。
         shadows: [Shadow(blurRadius: 4)],
       ),
       tooltip: 'ピクチャーインピクチャー',
